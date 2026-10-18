@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
   },
   cacheComponents: true,
   partialPrefetching: true,
+  images: {
+    remotePatterns: [new URL("https://raw.githubusercontent.com/PokeAPI/sprites/**")],
+  },
+  serverExternalPackages: ["ioredis"],
   turbopack: {
     rules: {
       "*.css": {
