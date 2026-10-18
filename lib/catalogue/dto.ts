@@ -44,3 +44,25 @@ export type PokemonDetail = {
   evolutions: NamedLink[];
   heldItems: NamedLink[];
 };
+
+/** Fields shown on a Game list tile. Detail-only data stays off this type. */
+export type GameListItem = {
+  id: number;
+  name: string;
+  artworkUrl: string | null;
+  generationLabel: string;
+};
+
+export type GameListPage = {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: GameListItem[];
+};
+
+export type GameDetail = {
+  id: number;
+  name: string;
+  artworkUrl: string | null;
+  generationLabel: string;
+};

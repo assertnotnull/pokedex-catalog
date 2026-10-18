@@ -2,6 +2,9 @@ import { inject, injectable } from "@needle-di/core";
 import { CacheStore } from "@/lib/cache/cache-store";
 import { Clock } from "@/lib/catalogue/clock";
 import type {
+  GameDetail,
+  GameListItem,
+  GameListPage,
   NamedLink,
   PokemonDetail,
   PokemonListItem,
@@ -15,6 +18,7 @@ import {
 import { UpstreamClient } from "@/lib/catalogue/upstream";
 
 export const POKEMON_PAGE_SIZE = 24;
+export const GAMES_PAGE_SIZE = 24;
 export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FETCH_CONCURRENCY = 8;
 
@@ -237,6 +241,77 @@ export class CatalogueGateway {
       // A failed write still leaves the fetched payload usable for this request.
     }
   }
+
+  async listGames(page: number): Promise<GameListPage> {
+    const safePage = normalizePage(page);
+    const offset = (safePage - 1) * GAMES_PAGE_SIZE;
+    const list = asList(
+      await this.readThrough(`/version?limit=${GAMES_PAGE_SIZE}&offset=${offset}`),
+    );
+    const items = (
+      await mapPool(list.results, FETCH_CONCURRENCY, (result) =>
+        this.toGameListItem(idFromResourceUrl(result.url)),
+      )
+    ).filter((item): item is GameListItem => item !== null);
+
+    return {
+      page: safePage,
+      pageSize: GAMES_PAGE_SIZE,
+      total: list.count,
+      items,
+    };
+  }
+
+  async getGame(id: number): Promise<GameDetail> {
+    if (!Number.isInteger(id) || id < 1) {
+      throw new CatalogueNotFoundError(String(id));
+    }
+
+    const game = await this.toGameListItem(id);
+    if (!game) throw new CatalogueNotFoundError(String(id));
+    return game;
+  }
+
+  private async toGameListItem(id: number): Promise<GameListItem | null> {
+    let version: VersionResource;
+    try {
+      version = asVersion(await this.readThrough(`/version/${id}`));
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError) return null;
+      throw error;
+    }
+
+    return {
+      id: version.id,
+      name: localizedName(version.names, version.name),
+      artworkUrl: null,
+      generationLabel: await this.generationLabel(version.version_group),
+    };
+  }
+
+  private async generationLabel(versionGroup: ResourceRef): Promise<string> {
+    let group: VersionGroupResource;
+    try {
+      group = asVersionGroup(await this.readThrough(pathFromResourceUrl(versionGroup.url)));
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError || error instanceof CatalogueUnavailableError) {
+        return versionGroup.name;
+      }
+      throw error;
+    }
+
+    try {
+      const generation = asGeneration(
+        await this.readThrough(pathFromResourceUrl(group.generation.url)),
+      );
+      return localizedName(generation.names, generation.name);
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError || error instanceof CatalogueUnavailableError) {
+        return group.generation.name;
+      }
+      throw error;
+    }
+  }
 }
 
 function normalizePage(page: number): number {
@@ -341,6 +416,48 @@ function asNames(value: unknown): NamesResource {
 function asEvolution(value: unknown): EvolutionResource {
   if (!isRecord(value) || !isRecord(value.chain)) throw new CatalogueUnavailableError();
   return value as EvolutionResource;
+}
+
+type VersionResource = {
+  id: number;
+  name: string;
+  names?: NamedEntry[];
+  version_group: ResourceRef;
+};
+
+type VersionGroupResource = {
+  generation: ResourceRef;
+};
+
+type GenerationResource = {
+  name: string;
+  names?: NamedEntry[];
+};
+
+function asVersion(value: unknown): VersionResource {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "number" ||
+    typeof value.name !== "string" ||
+    !isResourceRef(value.version_group)
+  ) {
+    throw new CatalogueUnavailableError();
+  }
+  return value as VersionResource;
+}
+
+function asVersionGroup(value: unknown): VersionGroupResource {
+  if (!isRecord(value) || !isResourceRef(value.generation)) throw new CatalogueUnavailableError();
+  return value as VersionGroupResource;
+}
+
+function asGeneration(value: unknown): GenerationResource {
+  if (!isRecord(value) || typeof value.name !== "string") throw new CatalogueUnavailableError();
+  return value as GenerationResource;
+}
+
+function isResourceRef(value: unknown): value is ResourceRef {
+  return isRecord(value) && typeof value.name === "string" && typeof value.url === "string";
 }
 
 async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
