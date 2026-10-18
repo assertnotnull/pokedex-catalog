@@ -2,10 +2,15 @@ import { inject, injectable } from "@needle-di/core";
 import { CacheStore } from "@/lib/cache/cache-store";
 import { Clock } from "@/lib/catalogue/clock";
 import type {
+  LocationDetail,
+  LocationEncounter,
+  LocationListItem,
+  LocationListPage,
   NamedLink,
   PokemonDetail,
   PokemonListItem,
   PokemonListPage,
+  RegionListItem,
 } from "@/lib/catalogue/dto";
 import {
   CatalogueNotFoundError,
@@ -49,9 +54,60 @@ type ChainLink = { species: ResourceRef; evolves_to?: ChainLink[] };
 
 type EvolutionResource = { chain: ChainLink };
 
-type ListResource = { count: number; results: ResourceRef[] };
+type ListResource = { count: number; next?: string | null; results: ResourceRef[] };
 
 type NamesResource = { names?: NamedEntry[] };
+
+type RegionResource = {
+  id: number;
+  name: string;
+  names?: NamedEntry[];
+  locations: ResourceRef[];
+};
+
+type LocationResource = {
+  id: number;
+  name: string;
+  names?: NamedEntry[];
+  areas: ResourceRef[];
+};
+
+type EncounterDetail = {
+  min_level: number;
+  max_level: number;
+  chance: number;
+  method: ResourceRef;
+};
+
+type VersionEncounter = {
+  version: ResourceRef;
+  encounter_details?: EncounterDetail[];
+};
+
+type PokemonEncounter = {
+  pokemon: ResourceRef;
+  version_details?: VersionEncounter[];
+};
+
+type LocationAreaResource = {
+  name: string;
+  names?: NamedEntry[];
+  pokemon_encounters: PokemonEncounter[];
+};
+
+type EncounterRow = {
+  pokemon: ResourceRef;
+  version: ResourceRef;
+  method: ResourceRef;
+  minLevel: number;
+  maxLevel: number;
+  chance: number;
+};
+
+type EncounterArea = {
+  zone: string;
+  rows: EncounterRow[];
+};
 
 @injectable()
 export class CatalogueGateway {
@@ -237,6 +293,179 @@ export class CatalogueGateway {
       // A failed write still leaves the fetched payload usable for this request.
     }
   }
+
+  async listRegions(): Promise<RegionListItem[]> {
+    const refs = await this.collectResourceList("region");
+    const items = (
+      await mapPool(refs, FETCH_CONCURRENCY, async (ref) => {
+        const id = idFromResourceUrl(ref.url);
+        try {
+          const region = asRegion(await this.readThrough(`/region/${id}`));
+          return { id: region.id, name: localizedName(region.names, region.name) };
+        } catch (error) {
+          if (error instanceof CatalogueNotFoundError) return null;
+          throw error;
+        }
+      })
+    ).filter((item): item is RegionListItem => item !== null);
+    return items.sort((a, b) => a.id - b.id);
+  }
+
+  async listLocations(regionId: number, page: number): Promise<LocationListPage> {
+    const region = await this.loadRegion(regionId);
+    const safePage = normalizePage(page);
+    const regionName = localizedName(region.names, region.name);
+    const offset = (safePage - 1) * POKEMON_PAGE_SIZE;
+    const slice = region.locations.slice(offset, offset + POKEMON_PAGE_SIZE);
+    const items = (
+      await mapPool(slice, FETCH_CONCURRENCY, async (ref) => {
+        const id = idFromResourceUrl(ref.url);
+        try {
+          const location = asLocation(await this.readThrough(`/location/${id}`));
+          return {
+            id: location.id,
+            name: localizedName(location.names, location.name),
+            region: regionName,
+          };
+        } catch (error) {
+          if (error instanceof CatalogueNotFoundError) return null;
+          throw error;
+        }
+      })
+    ).filter((item): item is LocationListItem => item !== null);
+
+    return {
+      page: safePage,
+      pageSize: POKEMON_PAGE_SIZE,
+      total: region.locations.length,
+      region: { id: region.id, name: regionName },
+      items,
+    };
+  }
+
+  async getLocation(regionId: number, locationId: number): Promise<LocationDetail> {
+    if (!Number.isInteger(locationId) || locationId < 1) {
+      throw new CatalogueNotFoundError(String(locationId));
+    }
+    const region = await this.loadRegion(regionId);
+    const listed = region.locations.some((ref) => idFromResourceUrl(ref.url) === locationId);
+    if (!listed) throw new CatalogueNotFoundError(String(locationId));
+
+    let location: LocationResource;
+    try {
+      location = asLocation(await this.readThrough(`/location/${locationId}`));
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError) throw new CatalogueNotFoundError(String(locationId));
+      throw error;
+    }
+
+    return {
+      id: location.id,
+      name: localizedName(location.names, location.name),
+      region: { id: region.id, name: localizedName(region.names, region.name) },
+      encounters: await this.loadEncounters(location),
+    };
+  }
+
+  private async loadRegion(regionId: number): Promise<RegionResource> {
+    if (!Number.isInteger(regionId) || regionId < 1) {
+      throw new CatalogueNotFoundError(String(regionId));
+    }
+    try {
+      return asRegion(await this.readThrough(`/region/${regionId}`));
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError) throw new CatalogueNotFoundError(String(regionId));
+      throw error;
+    }
+  }
+
+  private async collectResourceList(resource: string): Promise<ResourceRef[]> {
+    const refs: ResourceRef[] = [];
+    const seen = new Set<string>();
+    let path: string | null = `/${resource}?limit=100&offset=0`;
+    while (path && !seen.has(path)) {
+      seen.add(path);
+      const list = asList(await this.readThrough(path));
+      refs.push(...list.results);
+      path = list.next ? pathFromResourceUrl(list.next) : null;
+    }
+    return refs;
+  }
+
+  private async loadEncounters(location: LocationResource): Promise<LocationEncounter[]> {
+    const areas = await mapPool(location.areas, FETCH_CONCURRENCY, (ref) => this.loadEncounterArea(ref));
+    const rows = areas
+      .filter((area): area is EncounterArea => area !== null)
+      .flatMap((area) => area.rows.map((row) => ({ zone: area.zone, ...row })));
+    if (rows.length === 0) return [];
+
+    const pokemonLinks = new Map<string, NamedLink>();
+    const versionNames = new Map<string, string>();
+    const methodNames = new Map<string, string>();
+    await Promise.all([
+      mapPool(uniqueRefs(rows.map((row) => row.pokemon)), FETCH_CONCURRENCY, async (ref) => {
+        pokemonLinks.set(ref.url, await this.pokemonLink(ref));
+      }),
+      mapPool(uniqueRefs(rows.map((row) => row.version)), FETCH_CONCURRENCY, async (ref) => {
+        versionNames.set(ref.url, await this.frenchFromResource(pathFromResourceUrl(ref.url), ref.name));
+      }),
+      mapPool(uniqueRefs(rows.map((row) => row.method)), FETCH_CONCURRENCY, async (ref) => {
+        methodNames.set(ref.url, await this.frenchFromResource(pathFromResourceUrl(ref.url), ref.name));
+      }),
+    ]);
+
+    return rows.map((row) => ({
+      zone: row.zone,
+      pokemon: pokemonLinks.get(row.pokemon.url) ?? {
+        id: idFromResourceUrl(row.pokemon.url),
+        name: row.pokemon.name,
+      },
+      version: versionNames.get(row.version.url) ?? row.version.name,
+      method: methodNames.get(row.method.url) ?? row.method.name,
+      minLevel: row.minLevel,
+      maxLevel: row.maxLevel,
+      chance: row.chance,
+    }));
+  }
+
+  private async loadEncounterArea(ref: ResourceRef): Promise<EncounterArea | null> {
+    try {
+      const area = asLocationArea(await this.readThrough(pathFromResourceUrl(ref.url)));
+      const rows: EncounterRow[] = [];
+      for (const encounter of area.pokemon_encounters) {
+        for (const version of encounter.version_details ?? []) {
+          for (const detail of version.encounter_details ?? []) {
+            rows.push({
+              pokemon: encounter.pokemon,
+              version: version.version,
+              method: detail.method,
+              minLevel: detail.min_level,
+              maxLevel: detail.max_level,
+              chance: detail.chance,
+            });
+          }
+        }
+      }
+      return { zone: localizedName(area.names, area.name), rows };
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError) return null;
+      throw error;
+    }
+  }
+
+  private async pokemonLink(ref: ResourceRef): Promise<NamedLink> {
+    const id = idFromResourceUrl(ref.url);
+    try {
+      const pokemon = asPokemon(await this.readThrough(pathFromResourceUrl(ref.url)));
+      const species = await this.loadSpecies(pokemon);
+      return { id: pokemon.id, name: localizedName(species?.names, pokemon.name) };
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError || error instanceof CatalogueUnavailableError) {
+        return { id, name: ref.name };
+      }
+      throw error;
+    }
+  }
 }
 
 function normalizePage(page: number): number {
@@ -258,7 +487,7 @@ export function pathFromResourceUrl(url: string): string {
   const marker = "/api/v2";
   const index = parsed.pathname.indexOf(marker);
   if (index === -1) throw new CatalogueUnavailableError();
-  return normalizePath(parsed.pathname.slice(index + marker.length));
+  return normalizePath(`${parsed.pathname.slice(index + marker.length)}${parsed.search}`);
 }
 
 function idFromResourceUrl(url: string): number {
@@ -341,6 +570,37 @@ function asNames(value: unknown): NamesResource {
 function asEvolution(value: unknown): EvolutionResource {
   if (!isRecord(value) || !isRecord(value.chain)) throw new CatalogueUnavailableError();
   return value as EvolutionResource;
+}
+
+function asRegion(value: unknown): RegionResource {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "number" ||
+    typeof value.name !== "string" ||
+    !Array.isArray(value.locations)
+  ) {
+    throw new CatalogueUnavailableError();
+  }
+  return value as RegionResource;
+}
+
+function asLocation(value: unknown): LocationResource {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "number" ||
+    typeof value.name !== "string" ||
+    !Array.isArray(value.areas)
+  ) {
+    throw new CatalogueUnavailableError();
+  }
+  return value as LocationResource;
+}
+
+function asLocationArea(value: unknown): LocationAreaResource {
+  if (!isRecord(value) || typeof value.name !== "string" || !Array.isArray(value.pokemon_encounters)) {
+    throw new CatalogueUnavailableError();
+  }
+  return value as LocationAreaResource;
 }
 
 async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {

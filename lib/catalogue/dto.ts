@@ -44,3 +44,41 @@ export type PokemonDetail = {
   evolutions: NamedLink[];
   heldItems: NamedLink[];
 };
+
+/** Fields shown on a region index tile. */
+export type RegionListItem = {
+  id: number;
+  name: string;
+};
+
+/** Fields shown on a location list tile. Detail-only data stays off this type. */
+export type LocationListItem = {
+  id: number;
+  name: string;
+  region: string;
+};
+
+export type LocationListPage = {
+  page: number;
+  pageSize: number;
+  total: number;
+  region: NamedLink;
+  items: LocationListItem[];
+};
+
+export type LocationEncounter = {
+  zone: string;
+  pokemon: NamedLink;
+  version: string;
+  method: string;
+  minLevel: number;
+  maxLevel: number;
+  chance: number;
+};
+
+export type LocationDetail = {
+  id: number;
+  name: string;
+  region: NamedLink;
+  encounters: LocationEncounter[];
+};
