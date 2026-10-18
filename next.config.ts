@@ -11,6 +11,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [new URL("https://raw.githubusercontent.com/PokeAPI/sprites/**")],
   },
   serverExternalPackages: ["ioredis"],
+  allowedDevOrigins: ["127.0.0.1"],
   turbopack: {
     rules: {
       "*.css": {

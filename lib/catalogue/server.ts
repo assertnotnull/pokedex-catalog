@@ -8,7 +8,7 @@ import { PokeApiUpstream } from "@/lib/catalogue/upstream";
 const globalStore = globalThis as unknown as { catalogueContainer?: Container };
 
 export function getCatalogueGateway(): CatalogueGateway {
-  if (!globalStore.catalogueContainer) {
+  if (!globalStore.catalogueContainer?.has(CatalogueGateway)) {
     globalStore.catalogueContainer = createCatalogueContainer({
       cache: cacheStoreFromEnv({
         CACHE_BACKEND: process.env.CACHE_BACKEND,
