@@ -1,5 +1,11 @@
+import { DynamicMarker } from "@/components/games/dynamic-marker";
 import { GameHubUnfiltered } from "@/components/games/game-hub";
 
 export default function GamePokemonPage() {
-  return <GameHubUnfiltered section="Pokémon" />;
+  return (
+    <>
+      <DynamicMarker />
+      <GameHubUnfiltered section="Pokémon" />
+    </>
+  );
 }
