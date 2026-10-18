@@ -5,10 +5,19 @@ import { CatalogueGateway } from "@/lib/catalogue/gateway";
 import { createCatalogueContainer } from "@/lib/catalogue/container";
 import { PokeApiUpstream } from "@/lib/catalogue/upstream";
 
-const globalStore = globalThis as unknown as { catalogueContainer?: Container };
+const moduleGeneration = Symbol("catalogue-container");
+
+const globalStore = globalThis as unknown as {
+  catalogueContainer?: Container;
+  catalogueGeneration?: symbol;
+};
 
 export function getCatalogueGateway(): CatalogueGateway {
-  if (!globalStore.catalogueContainer?.has(CatalogueGateway)) {
+  if (
+    globalStore.catalogueGeneration !== moduleGeneration ||
+    !globalStore.catalogueContainer
+  ) {
+    globalStore.catalogueGeneration = moduleGeneration;
     globalStore.catalogueContainer = createCatalogueContainer({
       cache: cacheStoreFromEnv({
         CACHE_BACKEND: process.env.CACHE_BACKEND,

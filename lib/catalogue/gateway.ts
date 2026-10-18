@@ -207,18 +207,34 @@ export class CatalogueGateway {
 
   private async readThrough(path: string): Promise<unknown> {
     const key = `catalogue:${normalizePath(path)}`;
-    const cached = await this.cache.get(key);
+    const cached = await this.readCache(key);
     const fresh = cached !== null && this.clock.now() - cached.storedAt < CACHE_TTL_MS;
     if (cached && fresh) return cached.body;
 
     try {
       const body = await this.upstream.getJson(normalizePath(path));
-      await this.cache.set(key, { body, storedAt: this.clock.now() });
+      await this.writeCache(key, { body, storedAt: this.clock.now() });
       return body;
     } catch (error) {
       if (error instanceof UpstreamNotFoundError) throw new CatalogueNotFoundError(path);
       if (cached) return cached.body;
       throw new CatalogueUnavailableError();
+    }
+  }
+
+  private async readCache(key: string) {
+    try {
+      return await this.cache.get(key);
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeCache(key: string, record: { body: unknown; storedAt: number }) {
+    try {
+      await this.cache.set(key, record);
+    } catch {
+      // A failed write still leaves the fetched payload usable for this request.
     }
   }
 }
