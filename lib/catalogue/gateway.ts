@@ -2,6 +2,11 @@ import { inject, injectable } from "@needle-di/core";
 import { CacheStore } from "@/lib/cache/cache-store";
 import { Clock } from "@/lib/catalogue/clock";
 import type {
+  ItemDetail,
+  ItemListItem,
+  ItemListPage,
+  ItemMachine,
+  ItemPrice,
   NamedLink,
   PokemonDetail,
   PokemonListItem,
@@ -15,6 +20,7 @@ import {
 import { UpstreamClient } from "@/lib/catalogue/upstream";
 
 export const POKEMON_PAGE_SIZE = 24;
+const ITEM_PAGE_SIZE = 24;
 export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FETCH_CONCURRENCY = 8;
 
@@ -237,6 +243,133 @@ export class CatalogueGateway {
       // A failed write still leaves the fetched payload usable for this request.
     }
   }
+
+  async listItems(page: number): Promise<ItemListPage> {
+    const safePage = normalizePage(page);
+    const offset = (safePage - 1) * ITEM_PAGE_SIZE;
+    const list = asList(await this.readThrough(`/item?limit=${ITEM_PAGE_SIZE}&offset=${offset}`));
+    const items = (
+      await mapPool(list.results, FETCH_CONCURRENCY, (result) => this.toItemListItem(idFromResourceUrl(result.url)))
+    ).filter((item): item is ItemListItem => item !== null);
+
+    return {
+      page: safePage,
+      pageSize: ITEM_PAGE_SIZE,
+      total: list.count,
+      items,
+    };
+  }
+
+  async getItem(id: number): Promise<ItemDetail> {
+    if (!Number.isInteger(id) || id < 1) {
+      throw new CatalogueNotFoundError(String(id));
+    }
+
+    let item: ItemResource;
+    try {
+      item = asItem(await this.readThrough(`/item/${id}`));
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError) {
+        throw new CatalogueNotFoundError(String(id));
+      }
+      throw error;
+    }
+
+    const [category, attributes, flingEffect, heldBy, machines] = await Promise.all([
+      this.frenchFromResource(pathFromResourceUrl(item.category.url), item.category.name),
+      mapPool(item.attributes ?? [], FETCH_CONCURRENCY, (attribute) =>
+        this.frenchFromResource(pathFromResourceUrl(attribute.url), attribute.name),
+      ),
+      item.fling_effect
+        ? this.localizedResourceText(pathFromResourceUrl(item.fling_effect.url), item.fling_effect.name)
+        : Promise.resolve(null),
+      mapPool(
+        uniqueRefs((item.held_by_pokemon ?? []).map((entry) => entry.pokemon)),
+        FETCH_CONCURRENCY,
+        (pokemon) => this.heldPokemonLink(pokemon),
+      ),
+      mapPool(item.machines ?? [], FETCH_CONCURRENCY, (machine) => this.toItemMachine(machine)),
+    ]);
+
+    return {
+      id: item.id,
+      name: localizedName(item.names, item.name),
+      iconUrl: item.sprites?.default ?? null,
+      category,
+      price: itemPrice(item),
+      effect: localizedProse(item.effect_entries),
+      flavorText: localizedProse(item.flavor_text_entries),
+      attributes,
+      flingPower: typeof item.fling_power === "number" ? item.fling_power : null,
+      flingEffect,
+      heldBy,
+      machines,
+      triggersBabyEvolution: item.baby_trigger_for != null,
+    };
+  }
+
+  private async toItemListItem(id: number): Promise<ItemListItem | null> {
+    let item: ItemResource;
+    try {
+      item = asItem(await this.readThrough(`/item/${id}`));
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError) return null;
+      throw error;
+    }
+    return {
+      id: item.id,
+      name: localizedName(item.names, item.name),
+      iconUrl: item.sprites?.default ?? null,
+      category: await this.frenchFromResource(pathFromResourceUrl(item.category.url), item.category.name),
+    };
+  }
+
+  private async heldPokemonLink(ref: ResourceRef): Promise<NamedLink> {
+    const id = idFromResourceUrl(ref.url);
+    try {
+      const pokemon = asPokemon(await this.readThrough(pathFromResourceUrl(ref.url)));
+      const species = await this.loadSpecies(pokemon);
+      return { id: pokemon.id, name: localizedName(species?.names, pokemon.name) };
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError || error instanceof CatalogueUnavailableError) {
+        return { id, name: ref.name };
+      }
+      throw error;
+    }
+  }
+
+  private async toItemMachine(entry: ItemMachineEntry): Promise<ItemMachine> {
+    const versionGroup = await this.frenchFromResource(
+      pathFromResourceUrl(entry.version_group.url),
+      entry.version_group.name,
+    );
+    try {
+      const machine = asMachine(await this.readThrough(pathFromResourceUrl(entry.machine.url)));
+      return {
+        move: await this.frenchFromResource(pathFromResourceUrl(machine.move.url), machine.move.name),
+        versionGroup,
+      };
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError || error instanceof CatalogueUnavailableError) {
+        return { move: entry.machine.name ?? "machine", versionGroup };
+      }
+      throw error;
+    }
+  }
+
+  private async localizedResourceText(path: string, fallback: string): Promise<string> {
+    try {
+      const body = asTextResource(await this.readThrough(path));
+      const named = localizedName(body.names, "");
+      if (named) return named;
+      return localizedProse(body.effect_entries) ?? fallback;
+    } catch (error) {
+      if (error instanceof CatalogueNotFoundError || error instanceof CatalogueUnavailableError) {
+        return fallback;
+      }
+      throw error;
+    }
+  }
 }
 
 function normalizePage(page: number): number {
@@ -355,4 +488,96 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise
   });
   await Promise.all(workers);
   return results;
+}
+
+type ProseEntry = {
+  language?: { name: string };
+  short_effect?: string;
+  effect?: string;
+  text?: string;
+};
+
+type ItemPriceRow = {
+  purchase_price?: number | null;
+  sell_price?: number | null;
+  currency?: { name: string };
+};
+
+type ItemMachineEntry = {
+  machine: { url: string; name?: string };
+  version_group: ResourceRef;
+};
+
+type ItemResource = {
+  id: number;
+  name: string;
+  names?: NamedEntry[];
+  sprites?: { default?: string | null };
+  category: ResourceRef;
+  prices?: ItemPriceRow[];
+  effect_entries?: ProseEntry[];
+  flavor_text_entries?: ProseEntry[];
+  attributes?: ResourceRef[];
+  fling_power?: number | null;
+  fling_effect?: ResourceRef | null;
+  held_by_pokemon?: { pokemon: ResourceRef }[];
+  machines?: ItemMachineEntry[];
+  baby_trigger_for?: { url: string } | null;
+};
+
+type TextResource = {
+  names?: NamedEntry[];
+  effect_entries?: ProseEntry[];
+};
+
+type MachineResource = {
+  move: ResourceRef;
+};
+
+function itemPrice(item: ItemResource): ItemPrice | null {
+  const prices = item.prices ?? [];
+  const latest =
+    [...prices].reverse().find((row) => row.currency?.name === "poke-dollar") ?? [...prices].reverse()[0];
+  if (!latest) return null;
+  return {
+    purchase: typeof latest.purchase_price === "number" ? latest.purchase_price : null,
+    sell: typeof latest.sell_price === "number" ? latest.sell_price : null,
+  };
+}
+
+function localizedProse(entries: ProseEntry[] | undefined): string | null {
+  if (!entries) return null;
+  const pick = (language: string) => {
+    const entry = entries.filter((candidate) => candidate.language?.name === language).at(-1);
+    const raw = entry?.short_effect || entry?.effect || entry?.text;
+    if (!raw) return null;
+    return raw.replace(/[\f\n\r]+/g, " ").replace(/\s+/g, " ").trim();
+  };
+  return pick("fr") ?? pick("en");
+}
+
+function asItem(value: unknown): ItemResource {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "number" ||
+    typeof value.name !== "string" ||
+    !isRecord(value.category) ||
+    typeof value.category.name !== "string" ||
+    typeof value.category.url !== "string"
+  ) {
+    throw new CatalogueUnavailableError();
+  }
+  return value as ItemResource;
+}
+
+function asMachine(value: unknown): MachineResource {
+  if (!isRecord(value) || !isRecord(value.move) || typeof value.move.url !== "string") {
+    throw new CatalogueUnavailableError();
+  }
+  return value as MachineResource;
+}
+
+function asTextResource(value: unknown): TextResource {
+  if (!isRecord(value)) throw new CatalogueUnavailableError();
+  return value as TextResource;
 }
