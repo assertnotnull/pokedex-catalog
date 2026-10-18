@@ -1,0 +1,3 @@
+# Live PokeAPI with Redis / Vercel KV cache
+
+Visitors see up-to-date catalogue data without a build-time snapshot. All upstream reads go through a server-side cache backed by **Redis locally** and **Vercel KV in production** (one Redis-compatible client, two environments). On cache miss the app fetches PokeAPI, stores the response with a **7-day TTL**, and serves it; if PokeAPI is unavailable, serve the last cached payload when present (stale-while-revalidate). Build-time ingestion was rejected in favour of operational flexibility on Vercel and lazy population aligned with a lightweight first UI.
