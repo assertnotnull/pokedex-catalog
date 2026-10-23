@@ -22,5 +22,9 @@ Five canonical roles map 1:1 to GitHub labels (`needs-triage`, `needs-info`, `re
 
 Single-context layout: root `GLOSSARY.md` and `docs/adr/`. See `docs/agents/domain.md`.
 
+## Cursor Cloud specific instructions
 
-[You have received this identical output 3 times. Re-reading '/home/patrice/projets/pokedex-catalog/AGENTS.md:raw' will not change it — use a narrower selector (path:A-B), or proceed with the edit.]
+- Use Bun `1.4.3` (`packageManager` in `package.json`, lockfile `bun.lock`). Install with `bun install --frozen-lockfile`.
+- Dev server: `bun run dev` (Next.js 16, port 3000). Lint: `bun run lint`. Production build: `bun run build`.
+- Route types such as `LayoutProps` are generated under `.next`. Run `bun next typegen` before `bun x tsc --noEmit` when those types are missing.
+- The current app does not need secrets or a local database. Redis / Vercel KV caching described in `docs/adr/0001-live-pokeapi-with-kv-cache.md` is not implemented in this tree.
