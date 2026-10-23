@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SearchBox } from "@/components/shell/search-box";
 import { SectionNav } from "@/components/shell/section-nav";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 
@@ -17,10 +18,14 @@ export function Navbar() {
           Pokédex
         </Link>
       </div>
-      <nav className="navbar-center hidden lg:flex" aria-label="Sections">
+      <nav className="navbar-center hidden flex-1 justify-center gap-4 lg:flex" aria-label="Sections">
         <SectionNav className="menu menu-horizontal px-1" />
+        <SearchBox />
       </nav>
-      <div className="navbar-end">
+      <div className="navbar-end gap-2">
+        <div className="lg:hidden">
+          <SearchBox />
+        </div>
         <ThemeToggle />
       </div>
     </header>

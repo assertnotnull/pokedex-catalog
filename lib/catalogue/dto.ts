@@ -85,3 +85,75 @@ export type ItemDetail = {
   machines: ItemMachine[];
   triggersBabyEvolution: boolean;
 };
+
+/** Fields shown on a Game list tile. Detail-only data stays off this type. */
+export type GameListItem = {
+  id: number;
+  name: string;
+  artworkUrl: string | null;
+  generationLabel: string;
+};
+
+export type GameListPage = {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: GameListItem[];
+};
+
+export type GameDetail = {
+  id: number;
+  name: string;
+  artworkUrl: string | null;
+  generationLabel: string;
+};
+
+/** Fields shown on a region index tile. */
+export type RegionListItem = {
+  id: number;
+  name: string;
+};
+
+/** Fields shown on a location list tile. Detail-only data stays off this type. */
+export type LocationListItem = {
+  id: number;
+  name: string;
+  region: string;
+};
+
+export type LocationListPage = {
+  page: number;
+  pageSize: number;
+  total: number;
+  region: NamedLink;
+  items: LocationListItem[];
+};
+
+export type LocationEncounter = {
+  zone: string;
+  pokemon: NamedLink;
+  version: string;
+  method: string;
+  minLevel: number;
+  maxLevel: number;
+  chance: number;
+};
+
+export type LocationDetail = {
+  id: number;
+  name: string;
+  region: NamedLink;
+  encounters: LocationEncounter[];
+};
+
+export type SearchHit = {
+  id: number;
+  name: string;
+};
+
+export type SearchResults = {
+  games: SearchHit[];
+  pokemon: SearchHit[];
+  items: SearchHit[];
+  locations: SearchHit[];
+};

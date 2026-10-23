@@ -8,7 +8,7 @@ export type CatalogueTile = {
   imageAlt: string;
   kicker: string;
   title: string;
-  tags: ReactNode;
+  tags?: ReactNode;
 };
 
 export function TileGrid({ tiles, emptyLabel }: { tiles: CatalogueTile[]; emptyLabel: string }) {
