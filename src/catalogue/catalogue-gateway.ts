@@ -1,9 +1,10 @@
 import { inject, injectable } from "@needle-di/core";
 import { CacheStore } from "./cache-store";
 import { Clock } from "./clock";
-import { CatalogueUnavailableError } from "./errors";
+import { CatalogueUnavailableError, UnknownPokemonError } from "./errors";
 import {
   PokeApi,
+  UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
   type EvolutionLink,
@@ -59,9 +60,7 @@ export class CatalogueGateway {
   }
 
   async getPokemon(id: number): Promise<PokemonDetail> {
-    const pokemon = await this.load<PokemonPayload>(`pokemon:${id}`, () =>
-      this.upstream.getPokemon(id),
-    );
+    const pokemon = await this.pokemonOrNotFound(id);
     const species = await this.species(pokemon);
     const chainUrl = species.evolution_chain?.url;
     if (!chainUrl) {
@@ -138,6 +137,17 @@ export class CatalogueGateway {
     };
   }
 
+  private async pokemonOrNotFound(id: number): Promise<PokemonPayload> {
+    try {
+      return await this.load(`pokemon:${id}`, () => this.upstream.getPokemon(id));
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        throw new UnknownPokemonError(id);
+      }
+      throw error;
+    }
+  }
+
   private species(pokemon: PokemonPayload): Promise<SpeciesPayload> {
     const speciesId = idFromUrl(pokemon.species.url);
     return this.load(`species:${speciesId}`, () => this.upstream.getSpecies(speciesId));
@@ -176,7 +186,10 @@ export class CatalogueGateway {
       const body = await fetchBody();
       await this.cache.set(key, body, this.clock.now());
       return body;
-    } catch {
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        throw error;
+      }
       if (cached) {
         return cached.body as T;
       }

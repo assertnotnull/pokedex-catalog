@@ -1,3 +1,10 @@
+export class UpstreamNotFound extends Error {
+  constructor(readonly resource: string) {
+    super(`Upstream resource was not found: ${resource}`);
+    this.name = "UpstreamNotFound";
+  }
+}
+
 export type NamedResource = {
   name: string;
   url: string;
