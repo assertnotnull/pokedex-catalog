@@ -6,6 +6,7 @@ import { Clock, FixedClock } from "./clock";
 import { PokeApi, type PokemonPage } from "./poke-api";
 
 const T0 = 1_700_000_000_000;
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 const pagePayload: PokemonPage = {
   count: 1,
@@ -30,6 +31,18 @@ describe("catalogue gateway", () => {
     await gateway.listPokemon(1);
 
     expect(upstream.callCount).toBe(callsAfterMiss);
+  });
+
+  test("an expired cache entry is refetched", async () => {
+    const { gateway, upstream, clock } = openGateway();
+
+    await gateway.listPokemon(1);
+    const callsAfterMiss = upstream.callCount;
+    clock.advance(SEVEN_DAYS_MS);
+
+    await gateway.listPokemon(1);
+
+    expect(upstream.callCount).toBe(callsAfterMiss + 1);
   });
 });
 

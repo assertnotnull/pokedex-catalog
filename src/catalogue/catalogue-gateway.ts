@@ -4,6 +4,7 @@ import { Clock } from "./clock";
 import { PokeApi } from "./poke-api";
 
 const PAGE_SIZE = 24;
+const FRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type PokemonListPage = {
   total: number;
@@ -28,7 +29,7 @@ export class CatalogueGateway {
 
   private async load<T>(key: string, fetchBody: () => Promise<T>): Promise<T> {
     const cached = await this.cache.get(key);
-    if (cached) {
+    if (cached && this.clock.now() - cached.storedAt < FRESH_FOR_MS) {
       return cached.body as T;
     }
 
