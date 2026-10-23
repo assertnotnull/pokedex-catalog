@@ -20,6 +20,17 @@ describe("catalogue gateway", () => {
 
     expect(cache.storedBodies()).toContainEqual(pagePayload);
   });
+
+  test("a fresh cache hit does not refetch the upstream payload", async () => {
+    const { gateway, upstream } = openGateway();
+
+    await gateway.listPokemon(1);
+    const callsAfterMiss = upstream.callCount;
+
+    await gateway.listPokemon(1);
+
+    expect(upstream.callCount).toBe(callsAfterMiss);
+  });
 });
 
 function openGateway() {
@@ -39,11 +50,14 @@ function openGateway() {
 }
 
 class FakePokeApi extends PokeApi {
+  callCount = 0;
+
   constructor(private readonly page: PokemonPage) {
     super();
   }
 
   listPokemon(): Promise<PokemonPage> {
+    this.callCount += 1;
     return Promise.resolve(this.page);
   }
 }
