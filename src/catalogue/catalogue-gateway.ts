@@ -1,6 +1,7 @@
 import { inject, injectable } from "@needle-di/core";
 import { CacheStore } from "./cache-store";
 import { Clock } from "./clock";
+import { CatalogueUnavailableError } from "./errors";
 import { PokeApi } from "./poke-api";
 
 const PAGE_SIZE = 24;
@@ -37,11 +38,11 @@ export class CatalogueGateway {
       const body = await fetchBody();
       await this.cache.set(key, body, this.clock.now());
       return body;
-    } catch (error) {
+    } catch {
       if (cached) {
         return cached.body as T;
       }
-      throw error;
+      throw new CatalogueUnavailableError();
     }
   }
 }

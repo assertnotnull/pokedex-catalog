@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { CacheStore, InMemoryCacheStore } from "./cache-store";
 import { CatalogueGateway } from "./catalogue-gateway";
 import { Clock, FixedClock } from "./clock";
+import { CatalogueUnavailableError } from "./errors";
 import { PokeApi, type PokemonPage } from "./poke-api";
 
 const T0 = 1_700_000_000_000;
@@ -54,6 +55,15 @@ describe("catalogue gateway", () => {
     const second = await gateway.listPokemon(1);
 
     expect(second).toEqual(first);
+  });
+
+  test("upstream failure with no stored body is a controlled error", async () => {
+    const { gateway, upstream } = openGateway();
+    upstream.fail = true;
+
+    await expect(gateway.listPokemon(1)).rejects.toBeInstanceOf(
+      CatalogueUnavailableError,
+    );
   });
 });
 
