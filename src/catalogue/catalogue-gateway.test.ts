@@ -3,9 +3,10 @@ import { describe, expect, test } from "bun:test";
 import { CacheStore, InMemoryCacheStore } from "./cache-store";
 import { CatalogueGateway } from "./catalogue-gateway";
 import { Clock, FixedClock } from "./clock";
-import { CatalogueUnavailableError } from "./errors";
+import { CatalogueUnavailableError, UnknownPokemonError } from "./errors";
 import {
   PokeApi,
+  UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
   type PokemonPage,
@@ -211,6 +212,12 @@ describe("catalogue gateway", () => {
         { nationalNumber: 26, frenchName: "Raichu" },
       ],
     });
+  });
+
+  test("a missing Pokémon is a not-found error", async () => {
+    const { gateway } = openGateway();
+
+    await expect(gateway.getPokemon(404)).rejects.toBeInstanceOf(UnknownPokemonError);
   });
 });
 
@@ -493,7 +500,7 @@ class FakePokeApi extends PokeApi {
   }
 
   getPokemon(id: number): Promise<PokemonPayload> {
-    return this.read(() => this.fixture.pokemon.get(id), `pokemon ${id}`);
+    return this.read(() => this.fixture.pokemon.get(id), `pokemon ${id}`, true);
   }
 
   getSpecies(id: number): Promise<SpeciesPayload> {
@@ -520,14 +527,16 @@ class FakePokeApi extends PokeApi {
     return this.read(() => this.fixture.stats.get(id), `stat ${id}`);
   }
 
-  private read<T>(load: () => T | undefined, label: string): Promise<T> {
+  private read<T>(load: () => T | undefined, label: string, missingIsNotFound = false): Promise<T> {
     this.callCount += 1;
     if (this.fail) {
       return Promise.reject(new Error("upstream unavailable"));
     }
     const body = load();
     if (body === undefined) {
-      return Promise.reject(new Error(`missing ${label}`));
+      return Promise.reject(
+        missingIsNotFound ? new UpstreamNotFound(label) : new Error(`missing ${label}`),
+      );
     }
     return Promise.resolve(body);
   }
