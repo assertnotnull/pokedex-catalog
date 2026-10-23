@@ -34,9 +34,28 @@ export type TypePayload = {
   names: LocalizedName[];
 };
 
+export type DescribedPayload = {
+  id: number;
+  names: LocalizedName[];
+};
+
+export type EvolutionLink = {
+  species: NamedResource;
+  evolves_to: EvolutionLink[];
+};
+
+export type EvolutionChainPayload = {
+  id: number;
+  chain: EvolutionLink;
+};
+
 export abstract class PokeApi {
   abstract listPokemon(offset: number, limit: number): Promise<PokemonPage>;
   abstract getPokemon(id: number): Promise<PokemonPayload>;
   abstract getSpecies(id: number): Promise<SpeciesPayload>;
   abstract getType(id: number): Promise<TypePayload>;
+  abstract getEvolutionChain(id: number): Promise<EvolutionChainPayload>;
+  abstract getAbility(id: number): Promise<DescribedPayload>;
+  abstract getMove(id: number): Promise<DescribedPayload>;
+  abstract getStat(id: number): Promise<DescribedPayload>;
 }

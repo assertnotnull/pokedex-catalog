@@ -4,6 +4,9 @@ import { Clock } from "./clock";
 import { CatalogueUnavailableError } from "./errors";
 import {
   PokeApi,
+  type DescribedPayload,
+  type EvolutionChainPayload,
+  type EvolutionLink,
   type LocalizedName,
   type PokemonPayload,
   type SpeciesPayload,
@@ -25,6 +28,17 @@ export type PokemonListPage = {
   entries: PokemonListEntry[];
 };
 
+export type PokemonDetail = {
+  nationalNumber: number;
+  frenchName: string;
+  spriteUrl: string | null;
+  types: string[];
+  stats: { name: string; value: number }[];
+  abilities: { name: string; isHidden: boolean }[];
+  moves: { name: string }[];
+  evolutions: { nationalNumber: number; frenchName: string }[];
+};
+
 @injectable()
 export class CatalogueGateway {
   constructor(
@@ -44,15 +58,93 @@ export class CatalogueGateway {
     return { total: list.count, entries };
   }
 
+  async getPokemon(id: number): Promise<PokemonDetail> {
+    const pokemon = await this.load<PokemonPayload>(`pokemon:${id}`, () =>
+      this.upstream.getPokemon(id),
+    );
+    const species = await this.species(pokemon);
+    const chainUrl = species.evolution_chain?.url;
+    if (!chainUrl) {
+      throw new Error(`Species ${species.id} has no evolution chain`);
+    }
+    const chainId = idFromUrl(chainUrl);
+    const chain = await this.load<EvolutionChainPayload>(`evolution-chain:${chainId}`, () =>
+      this.upstream.getEvolutionChain(chainId),
+    );
+    const speciesRefs = flattenEvolution(chain.chain);
+
+    const [types, stats, abilities, moves, evolutions] = await Promise.all([
+      this.frenchTypes(pokemon),
+      Promise.all(
+        pokemon.stats.map(async (stat) => {
+          const described = await this.described(`stat`, stat.stat.url, (statId) =>
+            this.upstream.getStat(statId),
+          );
+          return { name: localizedName(described.names), value: stat.base_stat };
+        }),
+      ),
+      Promise.all(
+        pokemon.abilities.map(async (ability) => {
+          const described = await this.described(`ability`, ability.ability.url, (abilityId) =>
+            this.upstream.getAbility(abilityId),
+          );
+          return { name: localizedName(described.names), isHidden: ability.is_hidden };
+        }),
+      ),
+      Promise.all(
+        pokemon.moves.map(async (move) => {
+          const described = await this.described(`move`, move.move.url, (moveId) =>
+            this.upstream.getMove(moveId),
+          );
+          return { name: localizedName(described.names) };
+        }),
+      ),
+      Promise.all(
+        speciesRefs.map(async (speciesRef) => {
+          const evolutionId = idFromUrl(speciesRef.url);
+          const evolution = await this.load<SpeciesPayload>(`species:${evolutionId}`, () =>
+            this.upstream.getSpecies(evolutionId),
+          );
+          return {
+            nationalNumber: evolutionId,
+            frenchName: localizedName(evolution.names),
+          };
+        }),
+      ),
+    ]);
+
+    return {
+      nationalNumber: pokemon.id,
+      frenchName: localizedName(species.names),
+      spriteUrl: pokemon.sprites.front_default,
+      types,
+      stats,
+      abilities,
+      moves,
+      evolutions,
+    };
+  }
+
   private async listEntry(id: number): Promise<PokemonListEntry> {
     const pokemon = await this.load<PokemonPayload>(`pokemon:${id}`, () =>
       this.upstream.getPokemon(id),
     );
+    const species = await this.species(pokemon);
+    return {
+      nationalNumber: pokemon.id,
+      frenchName: localizedName(species.names),
+      spriteUrl: pokemon.sprites.front_default,
+      types: await this.frenchTypes(pokemon),
+    };
+  }
+
+  private species(pokemon: PokemonPayload): Promise<SpeciesPayload> {
     const speciesId = idFromUrl(pokemon.species.url);
-    const species = await this.load<SpeciesPayload>(`species:${speciesId}`, () =>
-      this.upstream.getSpecies(speciesId),
-    );
-    const types = await Promise.all(
+    return this.load(`species:${speciesId}`, () => this.upstream.getSpecies(speciesId));
+  }
+
+  private frenchTypes(pokemon: PokemonPayload): Promise<string[]> {
+    return Promise.all(
       [...pokemon.types]
         .sort((left, right) => left.slot - right.slot)
         .map(async (slot) => {
@@ -63,13 +155,15 @@ export class CatalogueGateway {
           return localizedName(type.names);
         }),
     );
+  }
 
-    return {
-      nationalNumber: pokemon.id,
-      frenchName: localizedName(species.names),
-      spriteUrl: pokemon.sprites.front_default,
-      types,
-    };
+  private described(
+    kind: string,
+    url: string,
+    fetchBody: (id: number) => Promise<DescribedPayload>,
+  ): Promise<DescribedPayload> {
+    const id = idFromUrl(url);
+    return this.load(`${kind}:${id}`, () => fetchBody(id));
   }
 
   private async load<T>(key: string, fetchBody: () => Promise<T>): Promise<T> {
@@ -101,6 +195,10 @@ function localizedName(names: LocalizedName[]): string {
     return english.name;
   }
   throw new Error("No French or English name");
+}
+
+function flattenEvolution(link: EvolutionLink): EvolutionLink["species"][] {
+  return [link.species, ...link.evolves_to.flatMap((next) => flattenEvolution(next))];
 }
 
 function idFromUrl(url: string): number {
