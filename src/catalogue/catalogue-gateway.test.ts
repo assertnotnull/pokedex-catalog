@@ -44,6 +44,17 @@ describe("catalogue gateway", () => {
 
     expect(upstream.callCount).toBe(callsAfterMiss + 1);
   });
+
+  test("an upstream failure returns the last stored body", async () => {
+    const { gateway, upstream, clock } = openGateway();
+    const first = await gateway.listPokemon(1);
+    clock.advance(SEVEN_DAYS_MS);
+    upstream.fail = true;
+
+    const second = await gateway.listPokemon(1);
+
+    expect(second).toEqual(first);
+  });
 });
 
 function openGateway() {
@@ -64,6 +75,7 @@ function openGateway() {
 
 class FakePokeApi extends PokeApi {
   callCount = 0;
+  fail = false;
 
   constructor(private readonly page: PokemonPage) {
     super();
@@ -71,6 +83,9 @@ class FakePokeApi extends PokeApi {
 
   listPokemon(): Promise<PokemonPage> {
     this.callCount += 1;
+    if (this.fail) {
+      return Promise.reject(new Error("upstream unavailable"));
+    }
     return Promise.resolve(this.page);
   }
 }

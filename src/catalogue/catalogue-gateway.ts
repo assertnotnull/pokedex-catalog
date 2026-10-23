@@ -33,8 +33,15 @@ export class CatalogueGateway {
       return cached.body as T;
     }
 
-    const body = await fetchBody();
-    await this.cache.set(key, body, this.clock.now());
-    return body;
+    try {
+      const body = await fetchBody();
+      await this.cache.set(key, body, this.clock.now());
+      return body;
+    } catch (error) {
+      if (cached) {
+        return cached.body as T;
+      }
+      throw error;
+    }
   }
 }
