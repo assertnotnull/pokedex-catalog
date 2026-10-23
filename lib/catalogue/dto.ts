@@ -44,3 +44,44 @@ export type PokemonDetail = {
   evolutions: NamedLink[];
   heldItems: NamedLink[];
 };
+
+/** Fields shown on an item list tile. Detail-only data stays off this type. */
+export type ItemListItem = {
+  id: number;
+  name: string;
+  iconUrl: string | null;
+  category: string;
+};
+
+export type ItemListPage = {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: ItemListItem[];
+};
+
+export type ItemPrice = {
+  purchase: number | null;
+  sell: number | null;
+};
+
+export type ItemMachine = {
+  move: string;
+  versionGroup: string;
+};
+
+export type ItemDetail = {
+  id: number;
+  name: string;
+  iconUrl: string | null;
+  category: string;
+  price: ItemPrice | null;
+  effect: string | null;
+  flavorText: string | null;
+  attributes: string[];
+  flingPower: number | null;
+  flingEffect: string | null;
+  heldBy: NamedLink[];
+  machines: ItemMachine[];
+  triggersBabyEvolution: boolean;
+};
