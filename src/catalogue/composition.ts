@@ -19,6 +19,14 @@ function createGateway(): CatalogueGateway {
   container.bind({ provide: CacheStore, useValue: cacheStoreFromEnv() });
   container.bind({ provide: PokeApi, useValue: new PokeApiClient() });
   container.bind({ provide: Clock, useValue: new SystemClock() });
+  // Next's compiler does not keep the @injectable registration, so the
+  // composition root binds the gateway explicitly. Tests still resolve it
+  // through the decorator.
+  container.bind({
+    provide: CatalogueGateway,
+    useFactory: (resolved) =>
+      new CatalogueGateway(resolved.get(CacheStore), resolved.get(PokeApi), resolved.get(Clock)),
+  });
   return container.get(CatalogueGateway);
 }
 
