@@ -14,7 +14,7 @@ import {
   type TypePayload,
 } from "./poke-api";
 
-const PAGE_SIZE = 24;
+export const POKEMON_PAGE_SIZE = 24;
 const FRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type PokemonListEntry = {
@@ -49,9 +49,9 @@ export class CatalogueGateway {
   ) {}
 
   async listPokemon(page: number): Promise<PokemonListPage> {
-    const offset = (page - 1) * PAGE_SIZE;
-    const list = await this.load(`pokemon-list:${PAGE_SIZE}:${offset}`, () =>
-      this.upstream.listPokemon(offset, PAGE_SIZE),
+    const offset = (page - 1) * POKEMON_PAGE_SIZE;
+    const list = await this.load(`pokemon-list:${POKEMON_PAGE_SIZE}:${offset}`, () =>
+      this.upstream.listPokemon(offset, POKEMON_PAGE_SIZE),
     );
     const entries = await Promise.all(
       list.results.map((result) => this.listEntry(idFromUrl(result.url))),
