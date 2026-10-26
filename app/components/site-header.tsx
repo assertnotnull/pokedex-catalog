@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { ThemeToggle } from "./theme-toggle";
 
 const sections = [
@@ -16,12 +17,14 @@ export function SiteHeader() {
       </Link>
       <nav aria-label="Sections" className="order-last flex w-full flex-wrap gap-1 md:order-none md:ml-6 md:w-auto md:flex-1">
         {sections.map((section) => (
-          <Link key={section.href} href={section.href} className="btn btn-ghost btn-sm">
+          <Link key={section.href} href={section.href} className="btn btn-ghost btn-sm text-primary-content">
             {section.label}
           </Link>
         ))}
       </nav>
-      <ThemeToggle />
+      <Suspense fallback={<span className="btn btn-sm border-primary-content/30 bg-primary-content text-primary">Thème sombre</span>}>
+        <ThemeToggle />
+      </Suspense>
     </header>
   );
 }
