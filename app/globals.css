@@ -7,16 +7,64 @@
 @plugin "daisyui/theme" {
   name: "light";
   default: true;
+  --color-base-100: #f7f8fb;
+  --color-base-200: #e8ecf2;
+  --color-base-300: #c5cdd8;
+  --color-base-content: #1a2332;
   --color-primary: #dc0a2d;
   --color-primary-content: #ffffff;
+  --radius-box: 0.75rem;
+  --radius-field: 0.5rem;
 }
 @plugin "daisyui/theme" {
   name: "dark";
-  --color-primary: #dc0a2d;
-  --color-primary-content: #ffffff;
+  --color-base-100: #1a222d;
+  --color-base-200: #121820;
+  --color-base-300: #2e3a4a;
+  --color-base-content: #e8edf4;
+  --color-primary: #f03d5a;
+  --color-primary-content: #1a0a0e;
+  --radius-box: 0.75rem;
+  --radius-field: 0.5rem;
 }
 
 @theme inline {
   --font-sans: var(--font-source-sans), "Source Sans 3", sans-serif;
   --font-display: var(--font-fraunces), Fraunces, serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    line-height: 1.55;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}
+
+@layer components {
+  .font-display {
+    font-family: var(--font-display);
+    font-variation-settings: "SOFT" 0, "WONK" 1;
+  }
+
+  .catalogue-panel {
+    @apply relative overflow-hidden rounded-2xl bg-base-100 ring-1 ring-base-300/90;
+  }
+
+  .catalogue-panel::before {
+    content: "";
+    @apply absolute inset-x-0 top-0 h-1 bg-primary;
+  }
+
+  .catalogue-page {
+    @apply mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10;
+  }
 }

@@ -40,8 +40,8 @@ async function PokemonList({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10">
-      <h1 className="font-display text-4xl">Pokémon</h1>
+    <div className="catalogue-page">
+      <h1 className="font-display text-4xl leading-tight">Pokémon</h1>
       {list.entries.length === 0 ? (
         <p>Cette page ne contient aucun Pokémon.</p>
       ) : (
@@ -73,9 +73,9 @@ function PokemonTile({ entry }: { entry: PokemonListEntry }) {
   return (
     <Link
       href={`/pokemon/${entry.nationalNumber}`}
-      className="card h-full border border-base-300 bg-base-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      className="catalogue-panel block h-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
-      <span className="card-body items-center gap-3 text-center">
+      <span className="flex flex-col items-center gap-3 px-4 pb-6 pt-7 text-center">
         <Sprite src={entry.spriteUrl} />
         <span className="text-sm text-base-content/60">N° {entry.nationalNumber}</span>
         <span className="font-display text-2xl leading-none">{entry.frenchName}</span>

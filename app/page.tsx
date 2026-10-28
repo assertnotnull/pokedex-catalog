@@ -9,18 +9,18 @@ const sections = [
 
 export default function Home() {
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-10">
+    <div className="catalogue-page">
       <h1 className="sr-only">Catalogue</h1>
-      <ul className="grid gap-4 sm:grid-cols-2">
+      <ul className="grid gap-5 sm:grid-cols-2">
         {sections.map((section) => (
           <li key={section.href}>
             <Link
               href={section.href}
-              className="card block border border-base-300 border-l-4 border-l-primary bg-base-100 transition-colors hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              className="catalogue-panel block transition-[box-shadow] hover:ring-primary/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
-              <span className="card-body">
-                <span className="card-title font-display text-4xl">{section.name}</span>
-                <span className="text-base-content/70">{section.text}</span>
+              <span className="flex flex-col gap-2 px-6 pb-7 pt-8">
+                <span className="font-display text-4xl leading-tight text-base-content">{section.name}</span>
+                <span className="max-w-[28ch] text-base-content/70">{section.text}</span>
               </span>
             </Link>
           </li>

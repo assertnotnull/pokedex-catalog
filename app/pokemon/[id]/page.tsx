@@ -55,7 +55,7 @@ function PokemonDetailContent({ pokemon }: { pokemon: PokemonDetail }) {
   const moves = [...new Set(pokemon.moves.map((move) => move.name))];
 
   return (
-    <article className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-10">
+    <article className="catalogue-page gap-8">
       <p>
         <Link href="/pokemon" className="link">
           Tous les Pokémon
