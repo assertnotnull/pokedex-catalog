@@ -1,29 +1,46 @@
 @import "tailwindcss";
+/*
+ * Theme colours from Zubat (National Dex #41), extracted at
+ * https://www.pokemonpalette.com/zubat
+ * #8bb4ee · #627bb4 · #b4529c · #7a3367 · #404040 · #4a417b
+ */
 @plugin "daisyui" {
   themes:
-    light --default,
-    dark;
+    zubat --default,
+    zubat-dark;
 }
 @plugin "daisyui/theme" {
-  name: "light";
+  name: "zubat";
   default: true;
-  --color-base-100: #f7f8fb;
-  --color-base-200: #e8ecf2;
-  --color-base-300: #c5cdd8;
-  --color-base-content: #1a2332;
-  --color-primary: #dc0a2d;
+  --color-base-100: #f5f8fd;
+  --color-base-200: #dfeaf8;
+  --color-base-300: #8bb4ee;
+  --color-base-content: #404040;
+  --color-primary: #7a3367;
   --color-primary-content: #ffffff;
+  --color-secondary: #627bb4;
+  --color-secondary-content: #ffffff;
+  --color-accent: #b4529c;
+  --color-accent-content: #ffffff;
+  --color-neutral: #4a417b;
+  --color-neutral-content: #f5f8fd;
   --radius-box: 0.75rem;
   --radius-field: 0.5rem;
 }
 @plugin "daisyui/theme" {
-  name: "dark";
-  --color-base-100: #1a222d;
-  --color-base-200: #121820;
-  --color-base-300: #2e3a4a;
-  --color-base-content: #e8edf4;
-  --color-primary: #f03d5a;
-  --color-primary-content: #1a0a0e;
+  name: "zubat-dark";
+  --color-base-100: #36324a;
+  --color-base-200: #2a2638;
+  --color-base-300: #627bb4;
+  --color-base-content: #dfeaf8;
+  --color-primary: #b4529c;
+  --color-primary-content: #ffffff;
+  --color-secondary: #4a417b;
+  --color-secondary-content: #dfeaf8;
+  --color-accent: #8bb4ee;
+  --color-accent-content: #2a2638;
+  --color-neutral: #404040;
+  --color-neutral-content: #dfeaf8;
   --radius-box: 0.75rem;
   --radius-field: 0.5rem;
 }

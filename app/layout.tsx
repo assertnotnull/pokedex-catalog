@@ -14,7 +14,7 @@ const sourceSans = Source_Sans_3({
   variable: "--font-source-sans",
 });
 
-const themeScript = `(function(){try{var theme=localStorage.getItem("catalogue-theme");if(theme==="dark"||theme==="light"){document.documentElement.setAttribute("data-theme",theme);}}catch(e){}})();`;
+const themeScript = `(function(){try{var t=localStorage.getItem("catalogue-theme");var theme=t==="zubat-dark"||t==="dark"?"zubat-dark":"zubat";document.documentElement.setAttribute("data-theme",theme);}catch(e){}})();`;
 
 export const metadata: Metadata = {
   title: "Pokédex",
@@ -25,7 +25,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="fr"
-      data-theme="light"
+      data-theme="zubat"
       className={`${fraunces.variable} ${sourceSans.variable} h-full`}
       suppressHydrationWarning
     >

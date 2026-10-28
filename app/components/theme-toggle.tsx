@@ -1,15 +1,24 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import {
+  CATALOGUE_THEME_DARK,
+  CATALOGUE_THEME_LIGHT,
+  catalogueThemeFromStorage,
+  isDarkCatalogueTheme,
+  type CatalogueTheme,
+} from "../catalogue-theme";
 
 const STORAGE_KEY = "catalogue-theme";
 const THEME_EVENT = "catalogue-theme";
 
 export function ThemeToggle() {
-  const theme = useSyncExternalStore(subscribe, currentTheme, () => "light" as const);
+  const theme = useSyncExternalStore(subscribe, readTheme, () => CATALOGUE_THEME_LIGHT);
 
   function toggle() {
-    const next = currentTheme() === "dark" ? "light" : "dark";
+    const next: CatalogueTheme = isDarkCatalogueTheme(readTheme())
+      ? CATALOGUE_THEME_LIGHT
+      : CATALOGUE_THEME_DARK;
     document.documentElement.setAttribute("data-theme", next);
     localStorage.setItem(STORAGE_KEY, next);
     window.dispatchEvent(new Event(THEME_EVENT));
@@ -20,10 +29,10 @@ export function ThemeToggle() {
       type="button"
       className="btn btn-ghost btn-sm border border-base-300"
       onClick={toggle}
-      aria-pressed={theme === "dark"}
+      aria-pressed={isDarkCatalogueTheme(theme)}
       suppressHydrationWarning
     >
-      {theme === "dark" ? "Thème clair" : "Thème sombre"}
+      {isDarkCatalogueTheme(theme) ? "Thème clair" : "Thème sombre"}
     </button>
   );
 }
@@ -33,6 +42,14 @@ function subscribe(onChange: () => void) {
   return () => window.removeEventListener(THEME_EVENT, onChange);
 }
 
-function currentTheme(): "light" | "dark" {
-  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+function readTheme(): CatalogueTheme {
+  const onRoot = document.documentElement.getAttribute("data-theme");
+  if (onRoot === CATALOGUE_THEME_DARK || onRoot === CATALOGUE_THEME_LIGHT) {
+    return onRoot;
+  }
+  try {
+    return catalogueThemeFromStorage(localStorage.getItem(STORAGE_KEY));
+  } catch {
+    return CATALOGUE_THEME_LIGHT;
+  }
 }
