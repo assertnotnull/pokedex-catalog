@@ -1,26 +1,87 @@
 @import "tailwindcss";
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Theme colours from Zubat (National Dex #41), extracted at
+ * https://www.pokemonpalette.com/zubat
+ * #8bb4ee · #627bb4 · #b4529c · #7a3367 · #404040 · #4a417b
+ */
+@plugin "daisyui" {
+  themes:
+    zubat --default,
+    zubat-dark;
+}
+@plugin "daisyui/theme" {
+  name: "zubat";
+  default: true;
+  --color-base-100: #f5f8fd;
+  --color-base-200: #dfeaf8;
+  --color-base-300: #8bb4ee;
+  --color-base-content: #404040;
+  --color-primary: #7a3367;
+  --color-primary-content: #ffffff;
+  --color-secondary: #627bb4;
+  --color-secondary-content: #ffffff;
+  --color-accent: #b4529c;
+  --color-accent-content: #ffffff;
+  --color-neutral: #4a417b;
+  --color-neutral-content: #f5f8fd;
+  --radius-box: 0.75rem;
+  --radius-field: 0.5rem;
+}
+@plugin "daisyui/theme" {
+  name: "zubat-dark";
+  --color-base-100: #36324a;
+  --color-base-200: #2a2638;
+  --color-base-300: #627bb4;
+  --color-base-content: #dfeaf8;
+  --color-primary: #b4529c;
+  --color-primary-content: #ffffff;
+  --color-secondary: #4a417b;
+  --color-secondary-content: #dfeaf8;
+  --color-accent: #8bb4ee;
+  --color-accent-content: #2a2638;
+  --color-neutral: #404040;
+  --color-neutral-content: #dfeaf8;
+  --radius-box: 0.75rem;
+  --radius-field: 0.5rem;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-source-sans), "Source Sans 3", sans-serif;
+  --font-display: var(--font-fraunces), Fraunces, serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    line-height: 1.55;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  .font-display {
+    font-family: var(--font-display);
+    font-variation-settings: "SOFT" 0, "WONK" 1;
+  }
+
+  .catalogue-panel {
+    @apply relative overflow-hidden rounded-2xl bg-base-100 ring-1 ring-base-300/90;
+  }
+
+  .catalogue-panel::before {
+    content: "";
+    @apply absolute inset-x-0 top-0 h-1 bg-primary;
+  }
+
+  .catalogue-page {
+    @apply mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10;
+  }
 }
