@@ -76,7 +76,7 @@ function ItemTile({ entry }: { entry: ItemListEntry }) {
       href={`/objets/${entry.id}`}
       className="catalogue-panel block h-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
-      <span className="flex flex-col items-center gap-3 px-4 pb-6 pt-7 text-center">
+      <span className="flex flex-col items-center gap-3 px-4 pb-6 pt-7 text-center sm:flex-col">
         <Sprite src={entry.spriteUrl} />
         <span className="font-display text-2xl leading-none">{entry.frenchName}</span>
         <span className="badge badge-outline">{entry.category}</span>

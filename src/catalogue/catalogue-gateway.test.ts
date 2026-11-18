@@ -10,7 +10,7 @@ import {
   type DescribedPayload,
   type EvolutionChainPayload,
   type ItemPayload,
-  type PokemonPage,
+  type ResourcePage,
   type PokemonPayload,
   type SpeciesPayload,
   type TypePayload,
@@ -19,13 +19,13 @@ import {
 const T0 = 1_700_000_000_000;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-const pagePayload: PokemonPage = {
+const pagePayload: ResourcePage = {
   count: 1,
   results: [{ name: "pikachu", url: "https://pokeapi.co/api/v2/pokemon/25/" }],
 };
 
 type CatalogueFixture = {
-  pages: Map<string, PokemonPage>;
+  pages: Map<string, ResourcePage>;
   pokemon: Map<number, PokemonPayload>;
   species: Map<number, SpeciesPayload>;
   types: Map<number, TypePayload>;
@@ -33,7 +33,7 @@ type CatalogueFixture = {
   abilities: Map<number, DescribedPayload>;
   moves: Map<number, DescribedPayload>;
   stats: Map<number, DescribedPayload>;
-  itemPages?: Map<string, PokemonPage>;
+  itemPages?: Map<string, ResourcePage>;
   items?: Map<number, ItemPayload>;
   itemCategories?: Map<number, DescribedPayload>;
   itemAttributes?: Map<number, DescribedPayload>;
@@ -768,7 +768,7 @@ class FakePokeApi extends PokeApi {
     super();
   }
 
-  listPokemon(offset: number, limit: number): Promise<PokemonPage> {
+  listPokemon(offset: number, limit: number): Promise<ResourcePage> {
     this.listCalls.push({ offset, limit });
     return this.read(
       () => this.fixture.pages.get(`${offset}:${limit}`),
@@ -804,7 +804,7 @@ class FakePokeApi extends PokeApi {
     return this.read(() => this.fixture.stats.get(id), `stat ${id}`);
   }
 
-  listItems(offset: number, limit: number): Promise<PokemonPage> {
+  listItems(offset: number, limit: number): Promise<ResourcePage> {
     this.itemListCalls.push({ offset, limit });
     return this.read(
       () => this.fixture.itemPages?.get(`${offset}:${limit}`),

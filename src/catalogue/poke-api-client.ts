@@ -4,7 +4,7 @@ import {
   type DescribedPayload,
   type EvolutionChainPayload,
   type ItemPayload,
-  type PokemonPage,
+  type ResourcePage,
   type PokemonPayload,
   type SpeciesPayload,
   type TypePayload,
@@ -13,7 +13,7 @@ import {
 const ROOT = "https://pokeapi.co/api/v2";
 
 export class PokeApiClient extends PokeApi {
-  listPokemon(offset: number, limit: number): Promise<PokemonPage> {
+  listPokemon(offset: number, limit: number): Promise<ResourcePage> {
     return this.get(`${ROOT}/pokemon?limit=${limit}&offset=${offset}`);
   }
 
@@ -45,7 +45,7 @@ export class PokeApiClient extends PokeApi {
     return this.get(`${ROOT}/stat/${id}/`);
   }
 
-  listItems(offset: number, limit: number): Promise<PokemonPage> {
+  listItems(offset: number, limit: number): Promise<ResourcePage> {
     return this.get(`${ROOT}/item?limit=${limit}&offset=${offset}`);
   }
 

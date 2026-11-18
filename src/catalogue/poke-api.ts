@@ -10,7 +10,7 @@ export type NamedResource = {
   url: string;
 };
 
-export type PokemonPage = {
+export type ResourcePage = {
   count: number;
   results: NamedResource[];
 };
@@ -69,7 +69,7 @@ export type ItemPayload = {
 };
 
 export abstract class PokeApi {
-  abstract listPokemon(offset: number, limit: number): Promise<PokemonPage>;
+  abstract listPokemon(offset: number, limit: number): Promise<ResourcePage>;
   abstract getPokemon(id: number): Promise<PokemonPayload>;
   abstract getSpecies(id: number): Promise<SpeciesPayload>;
   abstract getType(id: number): Promise<TypePayload>;
@@ -77,7 +77,7 @@ export abstract class PokeApi {
   abstract getAbility(id: number): Promise<DescribedPayload>;
   abstract getMove(id: number): Promise<DescribedPayload>;
   abstract getStat(id: number): Promise<DescribedPayload>;
-  abstract listItems(offset: number, limit: number): Promise<PokemonPage>;
+  abstract listItems(offset: number, limit: number): Promise<ResourcePage>;
   abstract getItem(id: number): Promise<ItemPayload>;
   abstract getItemCategory(id: number): Promise<DescribedPayload>;
   abstract getItemAttribute(id: number): Promise<DescribedPayload>;
