@@ -79,6 +79,25 @@ test("a visitor paginates the Pokémon list and opens a detail", async ({ page }
   await expect(page.getByRole("contentinfo")).toContainText("PokeAPI");
 });
 
+test("a visitor opens a game hub and sees its filtered Pokémon list", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("main").locator('a[href="/jeux"]').click();
+  await expect(page).toHaveURL("/jeux");
+  await page.getByRole("link", { name: visitorFixtures.gameName }).click();
+  await expect(page).toHaveURL(`/jeux/${visitorFixtures.gameId}`);
+
+  await page
+    .getByRole("navigation", { name: "Contenu du jeu" })
+    .getByRole("link", { name: "Pokémon" })
+    .click();
+  await expect(page).toHaveURL(`/jeux/${visitorFixtures.gameId}/pokemon`);
+  await expect(page.getByRole("heading", { level: 1, name: visitorFixtures.gameName })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Pokémon" })).toBeVisible();
+  await expect(page.getByRole("link", { name: visitorFixtures.firstName })).toBeVisible();
+  await expect(page.getByRole("link", { name: visitorFixtures.midEvolutionName })).toBeVisible();
+  await expect(page.getByRole("link", { name: visitorFixtures.secondPageName })).toHaveCount(0);
+});
+
 async function openPokemonList(page: Page) {
   await page.goto("/");
   await page.getByRole("main").locator('a[href="/pokemon"]').click();

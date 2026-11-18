@@ -14,7 +14,13 @@ export const visitorFixtures = {
   abilityName: "Talent d'essai",
   moveName: "Capacité d'essai",
   statValue: 45,
+  gameId: 1,
+  gameName: "Version d'essai",
+  generationLabel: "Génération d'essai",
 } as const;
+
+/** Species a game hub keeps. The global list also contains ids outside this set. */
+const GAME_SPECIES_IDS = [1, 2] as const;
 
 type Named = { name: string; url: string };
 
@@ -70,15 +76,25 @@ function missing(path: string): FixtureResponse {
 }
 
 function listFixture(kind: string, params: URLSearchParams): FixtureResponse {
-  if (kind !== "pokemon") return missing(kind);
+  if (kind === "pokemon") return namedPage("pokemon", visitorFixtures.total, params, frenchName);
+  if (kind === "version") return namedPage("version", 1, params, () => visitorFixtures.gameName);
+  return missing(kind);
+}
+
+function namedPage(
+  kind: string,
+  total: number,
+  params: URLSearchParams,
+  label: (id: number) => string,
+): FixtureResponse {
   const offset = numberParam(params.get("offset"), 0);
   const limit = numberParam(params.get("limit"), 24);
   const results: Named[] = [];
-  const last = Math.min(visitorFixtures.total, offset + limit);
+  const last = Math.min(total, offset + limit);
   for (let id = offset + 1; id <= last; id += 1) {
-    results.push({ name: frenchName(id).toLowerCase(), url: `${ROOT}/pokemon/${id}/` });
+    results.push({ name: label(id).toLowerCase(), url: `${ROOT}/${kind}/${id}/` });
   }
-  return { status: 200, body: { count: visitorFixtures.total, results } };
+  return { status: 200, body: { count: total, results } };
 }
 
 function numberParam(value: string | null, fallback: number): number {
@@ -102,6 +118,35 @@ function entityFixture(kind: string, id: number): unknown {
       return id === 1 ? { id, names: names(visitorFixtures.moveName) } : undefined;
     case "evolution-chain":
       return id === 1 ? evolutionChain() : undefined;
+    case "version":
+      return id === visitorFixtures.gameId
+        ? {
+            id,
+            names: names(visitorFixtures.gameName),
+            version_group: resource("version-group", 1),
+          }
+        : undefined;
+    case "version-group":
+      return id === 1
+        ? {
+            id,
+            generation: resource("generation", 1),
+            regions: [],
+            pokedexes: [resource("pokedex", 1)],
+          }
+        : undefined;
+    case "generation":
+      return id === 1 ? { id, names: names(visitorFixtures.generationLabel) } : undefined;
+    case "pokedex":
+      return id === 1
+        ? {
+            id,
+            pokemon_entries: GAME_SPECIES_IDS.map((speciesId, index) => ({
+              entry_number: index + 1,
+              pokemon_species: resource("pokemon-species", speciesId),
+            })),
+          }
+        : undefined;
     default:
       return undefined;
   }
