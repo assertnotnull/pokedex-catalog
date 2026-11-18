@@ -1,15 +1,23 @@
 import { inject, injectable } from "@needle-di/core";
 import { CacheStore } from "./cache-store";
 import { Clock } from "./clock";
-import { CatalogueUnavailableError, UnknownItemError, UnknownPokemonError } from "./errors";
+import {
+  CatalogueUnavailableError,
+  UnknownGameError,
+  UnknownItemError,
+  UnknownPokemonError,
+} from "./errors";
 import {
   PokeApi,
   UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
   type EvolutionLink,
+  type GenerationPayload,
   type ItemPayload,
   type LocalizedName,
+  type VersionGroupPayload,
+  type VersionPayload,
   type PokemonPayload,
   type SpeciesPayload,
   type TypePayload,
@@ -29,6 +37,18 @@ export type PokemonListEntry = {
 export type PokemonListPage = {
   total: number;
   entries: PokemonListEntry[];
+};
+
+export type GameListEntry = {
+  id: number;
+  frenchName: string;
+  artworkUrl: string | null;
+  generationLabel: string;
+};
+
+export type GameListPage = {
+  total: number;
+  entries: GameListEntry[];
 };
 
 export type ItemListEntry = {
@@ -74,6 +94,22 @@ export class CatalogueGateway {
     private readonly upstream = inject(PokeApi),
     private readonly clock = inject(Clock),
   ) {}
+
+  async listGames(page: number): Promise<GameListPage> {
+    const offset = (page - 1) * LIST_PAGE_SIZE;
+    const list = await this.load(`version-list:${LIST_PAGE_SIZE}:${offset}`, () =>
+      this.upstream.listVersions(offset, LIST_PAGE_SIZE),
+    );
+    const entries = await Promise.all(
+      list.results.map((result) => this.gameEntry(idFromUrl(result.url))),
+    );
+    return { total: list.count, entries };
+  }
+
+  async getGame(id: number): Promise<GameListEntry> {
+    await this.gameOrNotFound(id);
+    return this.gameEntry(id);
+  }
 
   async listItems(page: number): Promise<ItemListPage> {
     const offset = (page - 1) * LIST_PAGE_SIZE;
@@ -199,6 +235,35 @@ export class CatalogueGateway {
       moves,
       evolutions,
     };
+  }
+
+  private async gameEntry(id: number): Promise<GameListEntry> {
+    const version = await this.load<VersionPayload>(`version:${id}`, () => this.upstream.getVersion(id));
+    const groupId = idFromUrl(version.version_group.url);
+    const group = await this.load<VersionGroupPayload>(`version-group:${groupId}`, () =>
+      this.upstream.getVersionGroup(groupId),
+    );
+    const generationId = idFromUrl(group.generation.url);
+    const generation = await this.load<GenerationPayload>(`generation:${generationId}`, () =>
+      this.upstream.getGeneration(generationId),
+    );
+    return {
+      id: version.id,
+      frenchName: localizedName(version.names),
+      artworkUrl: null,
+      generationLabel: localizedName(generation.names),
+    };
+  }
+
+  private async gameOrNotFound(id: number): Promise<VersionPayload> {
+    try {
+      return await this.load(`version:${id}`, () => this.upstream.getVersion(id));
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        throw new UnknownGameError(id);
+      }
+      throw error;
+    }
   }
 
   private async itemListEntry(id: number): Promise<ItemListEntry> {

@@ -56,6 +56,24 @@ export type EvolutionChainPayload = {
   chain: EvolutionLink;
 };
 
+export type VersionPayload = {
+  id: number;
+  names: LocalizedName[];
+  version_group: NamedResource;
+};
+
+export type VersionGroupPayload = {
+  id: number;
+  generation: NamedResource;
+  regions: NamedResource[];
+  pokedexes: NamedResource[];
+};
+
+export type GenerationPayload = {
+  id: number;
+  names: LocalizedName[];
+};
+
 export type ItemPayload = {
   id: number;
   prices: { purchase_price: number | null; sell_price: number | null }[];
@@ -81,4 +99,8 @@ export abstract class PokeApi {
   abstract getItem(id: number): Promise<ItemPayload>;
   abstract getItemCategory(id: number): Promise<DescribedPayload>;
   abstract getItemAttribute(id: number): Promise<DescribedPayload>;
+  abstract listVersions(offset: number, limit: number): Promise<PokemonPage>;
+  abstract getVersion(id: number): Promise<VersionPayload>;
+  abstract getVersionGroup(id: number): Promise<VersionGroupPayload>;
+  abstract getGeneration(id: number): Promise<GenerationPayload>;
 }

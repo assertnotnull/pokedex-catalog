@@ -3,14 +3,22 @@ import { describe, expect, test } from "bun:test";
 import { CacheStore, InMemoryCacheStore } from "./cache-store";
 import { CatalogueGateway } from "./catalogue-gateway";
 import { Clock, FixedClock } from "./clock";
-import { CatalogueUnavailableError, UnknownItemError, UnknownPokemonError } from "./errors";
+import {
+  CatalogueUnavailableError,
+  UnknownGameError,
+  UnknownItemError,
+  UnknownPokemonError,
+} from "./errors";
 import {
   PokeApi,
   UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
+  type GenerationPayload,
   type ItemPayload,
   type PokemonPage,
+  type VersionGroupPayload,
+  type VersionPayload,
   type PokemonPayload,
   type SpeciesPayload,
   type TypePayload,
@@ -37,6 +45,10 @@ type CatalogueFixture = {
   items?: Map<number, ItemPayload>;
   itemCategories?: Map<number, DescribedPayload>;
   itemAttributes?: Map<number, DescribedPayload>;
+  gamePages?: Map<string, PokemonPage>;
+  versions?: Map<number, VersionPayload>;
+  versionGroups?: Map<number, VersionGroupPayload>;
+  generations?: Map<number, GenerationPayload>;
 };
 
 function emptyRelated(): Pick<
@@ -307,6 +319,57 @@ describe("catalogue gateway", () => {
     const { gateway } = openGateway(itemCatalogue());
 
     await expect(gateway.getItem(404)).rejects.toBeInstanceOf(UnknownItemError);
+  });
+
+  test("a game list entry keeps artwork, French name, and generation label", async () => {
+    const { gateway } = openGateway(gameCatalogue());
+
+    const page = await gateway.listGames(1);
+
+    expect(page.total).toBe(2);
+    expect(page.entries).toEqual([
+      {
+        id: 1,
+        frenchName: "Rouge",
+        artworkUrl: null,
+        generationLabel: "1re Génération",
+      },
+      {
+        id: 2,
+        frenchName: "Blue",
+        artworkUrl: null,
+        generationLabel: "Generation I",
+      },
+    ]);
+  });
+
+  test("each game list page requests the next 24 entries", async () => {
+    const { gateway, upstream } = openGateway(gameCatalogue());
+
+    await gateway.listGames(1);
+    await gateway.listGames(2);
+
+    expect(upstream.gameListCalls).toEqual([
+      { offset: 0, limit: 24 },
+      { offset: 24, limit: 24 },
+    ]);
+  });
+
+  test("a game detail repeats the list fields for that title", async () => {
+    const { gateway } = openGateway(gameCatalogue());
+
+    expect(await gateway.getGame(1)).toEqual({
+      id: 1,
+      frenchName: "Rouge",
+      artworkUrl: null,
+      generationLabel: "1re Génération",
+    });
+  });
+
+  test("a missing game is a not-found error", async () => {
+    const { gateway } = openGateway(gameCatalogue());
+
+    await expect(gateway.getGame(404)).rejects.toBeInstanceOf(UnknownGameError);
   });
 });
 
@@ -742,6 +805,89 @@ function itemCatalogue(): CatalogueFixture {
   };
 }
 
+function gameCatalogue(): CatalogueFixture {
+  return {
+    pages: new Map(),
+    pokemon: new Map(),
+    species: new Map(),
+    types: new Map(),
+    ...emptyRelated(),
+    gamePages: new Map([
+      [
+        "0:24",
+        {
+          count: 2,
+          results: [
+            { name: "red", url: "https://pokeapi.co/api/v2/version/1/" },
+            { name: "blue", url: "https://pokeapi.co/api/v2/version/2/" },
+          ],
+        },
+      ],
+      ["24:24", { count: 2, results: [] }],
+    ]),
+    versions: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Red", language: { name: "en" } },
+            { name: "Rouge", language: { name: "fr" } },
+          ],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          names: [{ name: "Blue", language: { name: "en" } }],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/2/" },
+        },
+      ],
+    ]),
+    versionGroups: new Map([
+      [
+        1,
+        {
+          id: 1,
+          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
+          regions: [{ name: "kanto", url: "https://pokeapi.co/api/v2/region/1/" }],
+          pokedexes: [{ name: "kanto", url: "https://pokeapi.co/api/v2/pokedex/2/" }],
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/2/" },
+          regions: [],
+          pokedexes: [],
+        },
+      ],
+    ]),
+    generations: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Generation I", language: { name: "en" } },
+            { name: "1re Génération", language: { name: "fr" } },
+          ],
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          names: [{ name: "Generation I", language: { name: "en" } }],
+        },
+      ],
+    ]),
+  };
+}
+
 function openGateway(fixture: CatalogueFixture = defaultCatalogue()) {
   const cache = new InMemoryCacheStore();
   const clock = new FixedClock(T0);
@@ -763,6 +909,7 @@ class FakePokeApi extends PokeApi {
   fail = false;
   listCalls: { offset: number; limit: number }[] = [];
   itemListCalls: { offset: number; limit: number }[] = [];
+  gameListCalls: { offset: number; limit: number }[] = [];
 
   constructor(private readonly fixture: CatalogueFixture) {
     super();
@@ -822,6 +969,26 @@ class FakePokeApi extends PokeApi {
 
   getItemAttribute(id: number): Promise<DescribedPayload> {
     return this.read(() => this.fixture.itemAttributes?.get(id), `item attribute ${id}`);
+  }
+
+  listVersions(offset: number, limit: number): Promise<PokemonPage> {
+    this.gameListCalls.push({ offset, limit });
+    return this.read(
+      () => this.fixture.gamePages?.get(`${offset}:${limit}`),
+      `version page ${offset}:${limit}`,
+    );
+  }
+
+  getVersion(id: number): Promise<VersionPayload> {
+    return this.read(() => this.fixture.versions?.get(id), `version ${id}`, true);
+  }
+
+  getVersionGroup(id: number): Promise<VersionGroupPayload> {
+    return this.read(() => this.fixture.versionGroups?.get(id), `version group ${id}`);
+  }
+
+  getGeneration(id: number): Promise<GenerationPayload> {
+    return this.read(() => this.fixture.generations?.get(id), `generation ${id}`);
   }
 
   private read<T>(load: () => T | undefined, label: string, missingIsNotFound = false): Promise<T> {
