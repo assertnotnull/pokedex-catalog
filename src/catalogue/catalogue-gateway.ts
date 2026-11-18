@@ -20,6 +20,7 @@ import {
   type LocalizedName,
   type LocationAreaPayload,
   type LocationPayload,
+  type PokedexPayload,
   type RegionPayload,
   type VersionGroupPayload,
   type VersionPayload,
@@ -53,6 +54,7 @@ export type RegionSummary = {
 export type LocationListEntry = {
   id: number;
   frenchName: string;
+  regionId: number;
   regionName: string;
 };
 
@@ -154,7 +156,12 @@ export class CatalogueGateway {
         const location = await this.load<LocationPayload>(`location:${id}`, () =>
           this.upstream.getLocation(id),
         );
-        return { id: location.id, frenchName: localizedName(location.names), regionName };
+        return {
+          id: location.id,
+          frenchName: localizedName(location.names),
+          regionId: region.id,
+          regionName,
+        };
       }),
     );
     return { total: region.locations.length, entries };
@@ -171,6 +178,58 @@ export class CatalogueGateway {
       regionName: localizedName(region.names),
       encounters: await this.encounters(location),
     };
+  }
+
+  async listPokemonForGame(gameId: number, page: number): Promise<PokemonListPage> {
+    const speciesIds = await this.speciesIdsForGame(gameId);
+    const slice = pageSlice(speciesIds, page);
+    const entries = await Promise.all(slice.map((id) => this.listEntry(id)));
+    return { total: speciesIds.length, entries };
+  }
+
+  async listItemsForGame(gameId: number, page: number): Promise<ItemListPage> {
+    const version = await this.gameOrNotFound(gameId);
+    const groupId = idFromUrl(version.version_group.url);
+    const group = await this.versionGroup(groupId);
+    const generationId = idFromUrl(group.generation.url);
+    const ids = await this.itemIdsForGame(generationId, groupId);
+    const slice = pageSlice(ids, page);
+    const entries = await Promise.all(slice.map((id) => this.itemListEntry(id)));
+    return { total: ids.length, entries };
+  }
+
+  async listLocationsForGame(gameId: number, page: number): Promise<LocationListPage> {
+    const version = await this.gameOrNotFound(gameId);
+    const group = await this.versionGroup(idFromUrl(version.version_group.url));
+    const refs: { id: number; regionId: number; regionName: string }[] = [];
+    const seen = new Set<number>();
+    for (const regionRef of group.regions) {
+      const region = await this.regionOrNotFound(idFromUrl(regionRef.url));
+      const regionName = localizedName(region.names);
+      for (const locationRef of region.locations) {
+        const id = idFromUrl(locationRef.url);
+        if (seen.has(id)) {
+          continue;
+        }
+        seen.add(id);
+        refs.push({ id, regionId: region.id, regionName });
+      }
+    }
+    const slice = pageSlice(refs, page);
+    const entries = await Promise.all(
+      slice.map(async (ref) => {
+        const location = await this.load<LocationPayload>(`location:${ref.id}`, () =>
+          this.upstream.getLocation(ref.id),
+        );
+        return {
+          id: location.id,
+          frenchName: localizedName(location.names),
+          regionId: ref.regionId,
+          regionName: ref.regionName,
+        };
+      }),
+    );
+    return { total: refs.length, entries };
   }
 
   async listGames(page: number): Promise<GameListPage> {
@@ -313,6 +372,51 @@ export class CatalogueGateway {
       moves,
       evolutions,
     };
+  }
+
+  private async speciesIdsForGame(gameId: number): Promise<number[]> {
+    const version = await this.gameOrNotFound(gameId);
+    const group = await this.versionGroup(idFromUrl(version.version_group.url));
+    const ids: number[] = [];
+    const seen = new Set<number>();
+    for (const pokedexRef of group.pokedexes) {
+      const pokedexId = idFromUrl(pokedexRef.url);
+      const pokedex = await this.load<PokedexPayload>(`pokedex:${pokedexId}`, () =>
+        this.upstream.getPokedex(pokedexId),
+      );
+      for (const entry of pokedex.pokemon_entries) {
+        const id = idFromUrl(entry.pokemon_species.url);
+        if (seen.has(id)) {
+          continue;
+        }
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+    return ids;
+  }
+
+  private async itemIdsForGame(generationId: number, versionGroupId: number): Promise<number[]> {
+    return this.load<number[]>(`item-ids:gen:${generationId}:vg:${versionGroupId}`, async () => {
+      const list = await this.upstream.listItems(0, 10_000);
+      const linked = await mapPool(list.results, 12, async (result) => {
+        const id = idFromUrl(result.url);
+        const item = await this.load<ItemPayload>(`item:${id}`, () => this.upstream.getItem(id));
+        const linkedByGeneration = (item.game_indices ?? []).some(
+          (index) => idFromUrl(index.generation.url) === generationId,
+        );
+        const linkedByVersionGroup = item.flavor_text_entries.some(
+          (entry) =>
+            entry.version_group !== undefined && idFromUrl(entry.version_group.url) === versionGroupId,
+        );
+        return linkedByGeneration || linkedByVersionGroup ? id : null;
+      });
+      return linked.filter((id): id is number => id !== null);
+    });
+  }
+
+  private versionGroup(id: number): Promise<VersionGroupPayload> {
+    return this.load(`version-group:${id}`, () => this.upstream.getVersionGroup(id));
   }
 
   private async regionSummary(id: number): Promise<RegionSummary> {
@@ -543,6 +647,30 @@ function localizedProse(
   }
   const cleaned = raw.replace(/[\n\f]+/g, " ").replace(/\s+/g, " ").trim();
   return cleaned.length > 0 ? cleaned : null;
+}
+
+async function mapPool<T, R>(
+  items: T[],
+  limit: number,
+  map: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await map(items[index]);
+    }
+  }
+  const workers = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  return results;
+}
+
+function pageSlice<T>(items: T[], page: number): T[] {
+  const start = (page - 1) * LIST_PAGE_SIZE;
+  return items.slice(start, start + LIST_PAGE_SIZE);
 }
 
 function localizedName(names: LocalizedName[]): string {

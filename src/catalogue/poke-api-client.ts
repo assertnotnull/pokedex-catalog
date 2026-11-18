@@ -7,6 +7,7 @@ import {
   type ItemPayload,
   type LocationAreaPayload,
   type LocationPayload,
+  type PokedexPayload,
   type PokemonPage,
   type RegionPayload,
   type VersionGroupPayload,
@@ -101,6 +102,10 @@ export class PokeApiClient extends PokeApi {
 
   getEncounterMethod(id: number): Promise<DescribedPayload> {
     return this.get(`${ROOT}/encounter-method/${id}/`);
+  }
+
+  getPokedex(id: number): Promise<PokedexPayload> {
+    return this.get(`${ROOT}/pokedex/${id}/`);
   }
 
   private async get<T>(url: string): Promise<T> {

@@ -110,9 +110,19 @@ export type ItemPayload = {
   category: NamedResource;
   attributes: NamedResource[];
   effect_entries: { short_effect: string; language: { name: string } }[];
-  flavor_text_entries: { text: string; language: { name: string } }[];
+  flavor_text_entries: {
+    text: string;
+    language: { name: string };
+    version_group?: NamedResource;
+  }[];
   names: LocalizedName[];
   held_by_pokemon: { pokemon: NamedResource }[];
+  game_indices?: { generation: NamedResource }[];
+};
+
+export type PokedexPayload = {
+  id: number;
+  pokemon_entries: { entry_number: number; pokemon_species: NamedResource }[];
 };
 
 export abstract class PokeApi {
@@ -137,4 +147,5 @@ export abstract class PokeApi {
   abstract getLocation(id: number): Promise<LocationPayload>;
   abstract getLocationArea(id: number): Promise<LocationAreaPayload>;
   abstract getEncounterMethod(id: number): Promise<DescribedPayload>;
+  abstract getPokedex(id: number): Promise<PokedexPayload>;
 }
