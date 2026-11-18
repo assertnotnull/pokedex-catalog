@@ -34,7 +34,6 @@ export function SiteSearch() {
 
   useEffect(() => {
     if (trimmed === "") {
-      setBody(null);
       return;
     }
     const controller = new AbortController();
