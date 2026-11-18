@@ -63,14 +63,14 @@ export class CatalogueGateway {
     const pokemon = await this.pokemonOrNotFound(id);
     const species = await this.species(pokemon);
     const chainUrl = species.evolution_chain?.url;
-    if (!chainUrl) {
-      throw new Error(`Species ${species.id} has no evolution chain`);
+    let speciesRefs: EvolutionLink["species"][] = [];
+    if (chainUrl) {
+      const chainId = idFromUrl(chainUrl);
+      const chain = await this.load<EvolutionChainPayload>(`evolution-chain:${chainId}`, () =>
+        this.upstream.getEvolutionChain(chainId),
+      );
+      speciesRefs = flattenEvolution(chain.chain);
     }
-    const chainId = idFromUrl(chainUrl);
-    const chain = await this.load<EvolutionChainPayload>(`evolution-chain:${chainId}`, () =>
-      this.upstream.getEvolutionChain(chainId),
-    );
-    const speciesRefs = flattenEvolution(chain.chain);
 
     const [types, stats, abilities, moves, evolutions] = await Promise.all([
       this.frenchTypes(pokemon),
