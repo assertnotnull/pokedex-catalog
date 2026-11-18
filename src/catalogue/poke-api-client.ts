@@ -3,7 +3,15 @@ import {
   UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
+  type GenerationPayload,
+  type ItemPayload,
+  type LocationAreaPayload,
+  type LocationPayload,
+  type PokedexPayload,
   type PokemonPage,
+  type RegionPayload,
+  type VersionGroupPayload,
+  type VersionPayload,
   type PokemonPayload,
   type SpeciesPayload,
   type TypePayload,
@@ -42,6 +50,62 @@ export class PokeApiClient extends PokeApi {
 
   getStat(id: number): Promise<DescribedPayload> {
     return this.get(`${ROOT}/stat/${id}/`);
+  }
+
+  listItems(offset: number, limit: number): Promise<PokemonPage> {
+    return this.get(`${ROOT}/item?limit=${limit}&offset=${offset}`);
+  }
+
+  getItem(id: number): Promise<ItemPayload> {
+    return this.get(`${ROOT}/item/${id}/`);
+  }
+
+  getItemCategory(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/item-category/${id}/`);
+  }
+
+  getItemAttribute(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/item-attribute/${id}/`);
+  }
+
+  listVersions(offset: number, limit: number): Promise<PokemonPage> {
+    return this.get(`${ROOT}/version?limit=${limit}&offset=${offset}`);
+  }
+
+  getVersion(id: number): Promise<VersionPayload> {
+    return this.get(`${ROOT}/version/${id}/`);
+  }
+
+  getVersionGroup(id: number): Promise<VersionGroupPayload> {
+    return this.get(`${ROOT}/version-group/${id}/`);
+  }
+
+  getGeneration(id: number): Promise<GenerationPayload> {
+    return this.get(`${ROOT}/generation/${id}/`);
+  }
+
+  listRegions(offset: number, limit: number): Promise<PokemonPage> {
+    return this.get(`${ROOT}/region?limit=${limit}&offset=${offset}`);
+  }
+
+  getRegion(id: number): Promise<RegionPayload> {
+    return this.get(`${ROOT}/region/${id}/`);
+  }
+
+  getLocation(id: number): Promise<LocationPayload> {
+    return this.get(`${ROOT}/location/${id}/`);
+  }
+
+  getLocationArea(id: number): Promise<LocationAreaPayload> {
+    return this.get(`${ROOT}/location-area/${id}/`);
+  }
+
+  getEncounterMethod(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/encounter-method/${id}/`);
+  }
+
+  getPokedex(id: number): Promise<PokedexPayload> {
+    return this.get(`${ROOT}/pokedex/${id}/`);
   }
 
   private async get<T>(url: string): Promise<T> {

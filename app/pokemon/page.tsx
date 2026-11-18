@@ -10,6 +10,7 @@ import {
 } from "@/src/catalogue/catalogue-gateway";
 import { CatalogueUnavailableError } from "@/src/catalogue/errors";
 import Link from "next/link";
+import { parsePage } from "../parse-page";
 
 export const metadata = {
   title: "Pokémon — Pokédex",
@@ -53,7 +54,7 @@ async function PokemonList({
           ))}
         </ul>
       )}
-      <Pagination page={page} total={list.total} pageSize={POKEMON_PAGE_SIZE} />
+      <Pagination page={page} total={list.total} pageSize={POKEMON_PAGE_SIZE} pathname="/pokemon" />
     </div>
   );
 }
@@ -89,12 +90,4 @@ function PokemonTile({ entry }: { entry: PokemonListEntry }) {
       </span>
     </Link>
   );
-}
-
-function parsePage(value: string | string[] | undefined): number {
-  const raw = Array.isArray(value) ? value[0] : value;
-  if (!raw || !/^[1-9]\d*$/.test(raw)) {
-    return 1;
-  }
-  return Number(raw);
 }

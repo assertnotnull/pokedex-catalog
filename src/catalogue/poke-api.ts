@@ -56,6 +56,75 @@ export type EvolutionChainPayload = {
   chain: EvolutionLink;
 };
 
+export type VersionPayload = {
+  id: number;
+  names: LocalizedName[];
+  version_group: NamedResource;
+};
+
+export type VersionGroupPayload = {
+  id: number;
+  generation: NamedResource;
+  regions: NamedResource[];
+  pokedexes: NamedResource[];
+};
+
+export type GenerationPayload = {
+  id: number;
+  names: LocalizedName[];
+};
+
+export type RegionPayload = {
+  id: number;
+  names: LocalizedName[];
+  locations: NamedResource[];
+};
+
+export type LocationPayload = {
+  id: number;
+  names: LocalizedName[];
+  region: NamedResource;
+  areas: NamedResource[];
+};
+
+export type LocationAreaPayload = {
+  id: number;
+  pokemon_encounters: {
+    pokemon: NamedResource;
+    version_details: {
+      version: NamedResource;
+      encounter_details: {
+        min_level: number;
+        max_level: number;
+        chance: number;
+        method: NamedResource;
+      }[];
+    }[];
+  }[];
+};
+
+export type ItemPayload = {
+  id: number;
+  prices: { purchase_price: number | null; sell_price: number | null }[];
+  sprites: { default: string | null };
+  category: NamedResource;
+  attributes: NamedResource[];
+  effect_entries: { short_effect: string; language: { name: string } }[];
+  flavor_text_entries: {
+    text: string;
+    language: { name: string };
+    version_group?: NamedResource;
+  }[];
+  names: LocalizedName[];
+  held_by_pokemon: { pokemon: NamedResource }[];
+  game_indices?: { generation: NamedResource }[];
+};
+
+export type PokedexPayload = {
+  id: number;
+  pokemon_entries: { entry_number: number; pokemon_species: NamedResource }[];
+};
+
 export abstract class PokeApi {
   abstract listPokemon(offset: number, limit: number): Promise<PokemonPage>;
   abstract getPokemon(id: number): Promise<PokemonPayload>;
@@ -65,4 +134,18 @@ export abstract class PokeApi {
   abstract getAbility(id: number): Promise<DescribedPayload>;
   abstract getMove(id: number): Promise<DescribedPayload>;
   abstract getStat(id: number): Promise<DescribedPayload>;
+  abstract listItems(offset: number, limit: number): Promise<PokemonPage>;
+  abstract getItem(id: number): Promise<ItemPayload>;
+  abstract getItemCategory(id: number): Promise<DescribedPayload>;
+  abstract getItemAttribute(id: number): Promise<DescribedPayload>;
+  abstract listVersions(offset: number, limit: number): Promise<PokemonPage>;
+  abstract getVersion(id: number): Promise<VersionPayload>;
+  abstract getVersionGroup(id: number): Promise<VersionGroupPayload>;
+  abstract getGeneration(id: number): Promise<GenerationPayload>;
+  abstract listRegions(offset: number, limit: number): Promise<PokemonPage>;
+  abstract getRegion(id: number): Promise<RegionPayload>;
+  abstract getLocation(id: number): Promise<LocationPayload>;
+  abstract getLocationArea(id: number): Promise<LocationAreaPayload>;
+  abstract getEncounterMethod(id: number): Promise<DescribedPayload>;
+  abstract getPokedex(id: number): Promise<PokedexPayload>;
 }
