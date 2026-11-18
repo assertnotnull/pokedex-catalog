@@ -56,16 +56,47 @@ export type EvolutionChainPayload = {
   chain: EvolutionLink;
 };
 
+export type ItemPricePayload = {
+  purchase_price: number | null;
+  sell_price: number | null;
+  version_group?: NamedResource;
+};
+
 export type ItemPayload = {
   id: number;
-  prices: { purchase_price: number | null; sell_price: number | null }[];
+  prices: ItemPricePayload[];
   sprites: { default: string | null };
   category: NamedResource;
   attributes: NamedResource[];
-  effect_entries: { short_effect: string; language: { name: string } }[];
-  flavor_text_entries: { text: string; language: { name: string } }[];
+  effect_entries: { effect?: string; short_effect?: string; language: { name: string } }[];
+  flavor_text_entries: {
+    text: string;
+    language: { name: string };
+    version_group?: NamedResource;
+  }[];
   names: LocalizedName[];
-  held_by_pokemon: { pokemon: NamedResource }[];
+  held_by_pokemon: {
+    pokemon: NamedResource;
+    version_details?: { version: NamedResource }[];
+  }[];
+  machines?: { machine: NamedResource; version_group: NamedResource }[];
+  fling_power?: number | null;
+  fling_effect?: NamedResource | null;
+};
+
+export type VersionGroupPayload = {
+  id: number;
+  versions: NamedResource[];
+};
+
+export type MachinePayload = {
+  id: number;
+  move: NamedResource;
+};
+
+export type FlingEffectPayload = {
+  id: number;
+  effect_entries: { effect: string; language: { name: string } }[];
 };
 
 export abstract class PokeApi {
@@ -81,4 +112,8 @@ export abstract class PokeApi {
   abstract getItem(id: number): Promise<ItemPayload>;
   abstract getItemCategory(id: number): Promise<DescribedPayload>;
   abstract getItemAttribute(id: number): Promise<DescribedPayload>;
+  abstract getVersionGroup(id: number): Promise<VersionGroupPayload>;
+  abstract getVersion(id: number): Promise<DescribedPayload>;
+  abstract getMachine(id: number): Promise<MachinePayload>;
+  abstract getItemFlingEffect(id: number): Promise<FlingEffectPayload>;
 }

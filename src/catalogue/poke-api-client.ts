@@ -3,8 +3,11 @@ import {
   UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
+  type FlingEffectPayload,
   type ItemPayload,
+  type MachinePayload,
   type ResourcePage,
+  type VersionGroupPayload,
   type PokemonPayload,
   type SpeciesPayload,
   type TypePayload,
@@ -59,6 +62,22 @@ export class PokeApiClient extends PokeApi {
 
   getItemAttribute(id: number): Promise<DescribedPayload> {
     return this.get(`${ROOT}/item-attribute/${id}/`);
+  }
+
+  getVersionGroup(id: number): Promise<VersionGroupPayload> {
+    return this.get(`${ROOT}/version-group/${id}/`);
+  }
+
+  getVersion(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/version/${id}/`);
+  }
+
+  getMachine(id: number): Promise<MachinePayload> {
+    return this.get(`${ROOT}/machine/${id}/`);
+  }
+
+  getItemFlingEffect(id: number): Promise<FlingEffectPayload> {
+    return this.get(`${ROOT}/item-fling-effect/${id}/`);
   }
 
   private async get<T>(url: string): Promise<T> {

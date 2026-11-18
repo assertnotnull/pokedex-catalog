@@ -64,10 +64,24 @@ function ItemDetailContent({ item }: { item: ItemDetail }) {
         <div className="flex flex-col gap-2 sm:flex-col">
           <h1 className="font-display text-5xl leading-none">{item.frenchName}</h1>
           <p className="badge badge-outline w-fit">{item.category}</p>
-          {item.purchasePrice !== null ? <p>Prix d’achat : {item.purchasePrice}</p> : null}
-          {item.sellPrice !== null ? <p>Prix de vente : {item.sellPrice}</p> : null}
         </div>
       </header>
+
+      {item.prices.length > 0 ? (
+        <section className="flex flex-col gap-3 sm:flex-col">
+          <h2 className="font-display text-2xl">Prix</h2>
+          <ul className="flex flex-col gap-1 sm:flex-col">
+            {item.prices.map((price) => (
+              <li key={`${price.versions}-${price.purchasePrice}-${price.sellPrice}`}>
+                {price.versions ? <span>{price.versions} : </span> : null}
+                {price.purchasePrice !== null ? <span>achat {price.purchasePrice}</span> : null}
+                {price.purchasePrice !== null && price.sellPrice !== null ? <span>, </span> : null}
+                {price.sellPrice !== null ? <span>vente {price.sellPrice}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {item.effect ? (
         <section className="flex flex-col gap-3 sm:flex-col">
@@ -76,10 +90,25 @@ function ItemDetailContent({ item }: { item: ItemDetail }) {
         </section>
       ) : null}
 
-      {item.flavorText ? (
+      {item.flavorTexts.length > 0 ? (
         <section className="flex flex-col gap-3 sm:flex-col">
           <h2 className="font-display text-2xl">Description</h2>
-          <p>{item.flavorText}</p>
+          <ul className="flex flex-col gap-2 sm:flex-col">
+            {item.flavorTexts.map((flavor) => (
+              <li key={`${flavor.versions}-${flavor.text}`}>
+                {flavor.versions ? <span className="text-base-content/60">{flavor.versions}. </span> : null}
+                {flavor.text}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {item.flingPower !== null || item.flingEffect ? (
+        <section className="flex flex-col gap-3 sm:flex-col">
+          <h2 className="font-display text-2xl">Lancer</h2>
+          {item.flingPower !== null ? <p>Puissance {item.flingPower}</p> : null}
+          {item.flingEffect ? <p>{item.flingEffect}</p> : null}
         </section>
       ) : null}
 
@@ -96,6 +125,20 @@ function ItemDetailContent({ item }: { item: ItemDetail }) {
         </section>
       ) : null}
 
+      {item.machines.length > 0 ? (
+        <section className="flex flex-col gap-3 sm:flex-col">
+          <h2 className="font-display text-2xl">Machines</h2>
+          <ul className="flex flex-col gap-1 sm:flex-col">
+            {item.machines.map((machine) => (
+              <li key={`${machine.versions}-${machine.move}`}>
+                {machine.move}
+                {machine.versions ? <span className="text-base-content/60"> ({machine.versions})</span> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {item.heldBy.length > 0 ? (
         <section className="flex flex-col gap-3 sm:flex-col">
           <h2 className="font-display text-2xl">Tenu par</h2>
@@ -105,6 +148,9 @@ function ItemDetailContent({ item }: { item: ItemDetail }) {
                 <Link href={`/pokemon/${holder.nationalNumber}`} className="link">
                   {holder.frenchName}
                 </Link>
+                {holder.versions.length > 0 ? (
+                  <span className="text-base-content/60"> ({holder.versions.join(", ")})</span>
+                ) : null}
               </li>
             ))}
           </ul>

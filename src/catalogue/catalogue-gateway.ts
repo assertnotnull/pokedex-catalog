@@ -8,11 +8,14 @@ import {
   type DescribedPayload,
   type EvolutionChainPayload,
   type EvolutionLink,
+  type FlingEffectPayload,
   type ItemPayload,
   type LocalizedName,
+  type MachinePayload,
   type PokemonPayload,
   type SpeciesPayload,
   type TypePayload,
+  type VersionGroupPayload,
 } from "./poke-api";
 
 export const LIST_PAGE_SIZE = 24;
@@ -54,17 +57,41 @@ export type PokemonDetail = {
   evolutions: { nationalNumber: number; frenchName: string }[];
 };
 
+export type ItemPrice = {
+  versions: string;
+  purchasePrice: number | null;
+  sellPrice: number | null;
+};
+
+export type VersionedText = {
+  versions: string;
+  text: string;
+};
+
+export type ItemMachine = {
+  versions: string;
+  move: string;
+};
+
+export type ItemHolder = {
+  nationalNumber: number;
+  frenchName: string;
+  versions: string[];
+};
+
 export type ItemDetail = {
   id: number;
   frenchName: string;
   spriteUrl: string | null;
   category: string;
-  purchasePrice: number | null;
-  sellPrice: number | null;
+  prices: ItemPrice[];
   effect: string | null;
-  flavorText: string | null;
+  flavorTexts: VersionedText[];
+  flingPower: number | null;
+  flingEffect: string | null;
   attributes: string[];
-  heldBy: { nationalNumber: number; frenchName: string }[];
+  machines: ItemMachine[];
+  heldBy: ItemHolder[];
 };
 
 @injectable()
@@ -88,39 +115,49 @@ export class CatalogueGateway {
 
   async getItem(id: number): Promise<ItemDetail> {
     const item = await this.itemOrNotFound(id);
-    const [category, attributes, heldBy] = await Promise.all([
-      this.described(`item-category`, item.category.url, (categoryId) =>
-        this.upstream.getItemCategory(categoryId),
-      ),
-      Promise.all(
-        item.attributes.map((attribute) =>
-          this.described(`item-attribute`, attribute.url, (attributeId) =>
-            this.upstream.getItemAttribute(attributeId),
+    const [category, attributes, heldBy, prices, flavorTexts, machines, flingEffect] =
+      await Promise.all([
+        this.described(`item-category`, item.category.url, (categoryId) =>
+          this.upstream.getItemCategory(categoryId),
+        ),
+        Promise.all(
+          item.attributes.map((attribute) =>
+            this.described(`item-attribute`, attribute.url, (attributeId) =>
+              this.upstream.getItemAttribute(attributeId),
+            ),
           ),
         ),
-      ),
-      Promise.all(
-        item.held_by_pokemon.map(async (held) => {
-          const nationalNumber = idFromUrl(held.pokemon.url);
-          const pokemon = await this.load<PokemonPayload>(`pokemon:${nationalNumber}`, () =>
-            this.upstream.getPokemon(nationalNumber),
-          );
-          const species = await this.species(pokemon);
-          return { nationalNumber, frenchName: localizedName(species.names) };
-        }),
-      ),
-    ]);
+        Promise.all(
+          item.held_by_pokemon.map(async (held) => {
+            const nationalNumber = idFromUrl(held.pokemon.url);
+            const pokemon = await this.load<PokemonPayload>(`pokemon:${nationalNumber}`, () =>
+              this.upstream.getPokemon(nationalNumber),
+            );
+            const species = await this.species(pokemon);
+            const versions = await Promise.all(
+              (held.version_details ?? []).map((detail) => this.versionName(detail.version.url)),
+            );
+            return { nationalNumber, frenchName: localizedName(species.names), versions };
+          }),
+        ),
+        this.itemPrices(item),
+        this.itemFlavorTexts(item),
+        this.itemMachines(item),
+        this.itemFlingEffect(item),
+      ]);
 
     return {
       id: item.id,
       frenchName: localizedName(item.names),
       spriteUrl: item.sprites.default,
       category: localizedName(category.names),
-      purchasePrice: firstPrice(item.prices, "purchase_price"),
-      sellPrice: firstPrice(item.prices, "sell_price"),
-      effect: localizedProse(item.effect_entries, "short_effect"),
-      flavorText: localizedProse(item.flavor_text_entries, "text"),
+      prices,
+      effect: localizedEffect(item.effect_entries),
+      flavorTexts,
+      flingPower: item.fling_power ?? null,
+      flingEffect,
       attributes: attributes.map((attribute) => localizedName(attribute.names)),
+      machines,
       heldBy,
     };
   }
@@ -199,6 +236,85 @@ export class CatalogueGateway {
       moves,
       evolutions,
     };
+  }
+
+  private async itemPrices(item: ItemPayload): Promise<ItemPrice[]> {
+    const prices = await Promise.all(
+      item.prices.map(async (price) => ({
+        versions: price.version_group ? await this.versionGroupLabel(price.version_group.url) : "",
+        purchasePrice: typeof price.purchase_price === "number" ? price.purchase_price : null,
+        sellPrice: typeof price.sell_price === "number" ? price.sell_price : null,
+      })),
+    );
+    return prices.filter((price) => price.purchasePrice !== null || price.sellPrice !== null);
+  }
+
+  private async itemFlavorTexts(item: ItemPayload): Promise<VersionedText[]> {
+    const byGroup = new Map<string, ItemPayload["flavor_text_entries"]>();
+    for (const entry of item.flavor_text_entries) {
+      const key = entry.version_group?.url ?? "";
+      const group = byGroup.get(key) ?? [];
+      group.push(entry);
+      byGroup.set(key, group);
+    }
+
+    const texts: VersionedText[] = [];
+    for (const [url, entries] of byGroup) {
+      const text = localizedProse(entries, "text");
+      if (!text) {
+        continue;
+      }
+      texts.push({ versions: url ? await this.versionGroupLabel(url) : "", text });
+    }
+    return texts;
+  }
+
+  private async itemMachines(item: ItemPayload): Promise<ItemMachine[]> {
+    return Promise.all(
+      (item.machines ?? []).map(async (row) => {
+        const machineId = idFromUrl(row.machine.url);
+        const machine = await this.load<MachinePayload>(`machine:${machineId}`, () =>
+          this.upstream.getMachine(machineId),
+        );
+        const move = await this.described(`move`, machine.move.url, (moveId) =>
+          this.upstream.getMove(moveId),
+        );
+        return {
+          versions: await this.versionGroupLabel(row.version_group.url),
+          move: localizedName(move.names),
+        };
+      }),
+    );
+  }
+
+  private async itemFlingEffect(item: ItemPayload): Promise<string | null> {
+    if (!item.fling_effect) {
+      return null;
+    }
+    const effectId = idFromUrl(item.fling_effect.url);
+    const effect = await this.load<FlingEffectPayload>(`item-fling-effect:${effectId}`, () =>
+      this.upstream.getItemFlingEffect(effectId),
+    );
+    return localizedProse(
+      effect.effect_entries.map((entry) => ({ text: entry.effect, language: entry.language })),
+      "text",
+    );
+  }
+
+  private async versionGroupLabel(url: string): Promise<string> {
+    const groupId = idFromUrl(url);
+    const group = await this.load<VersionGroupPayload>(`version-group:${groupId}`, () =>
+      this.upstream.getVersionGroup(groupId),
+    );
+    const names = await Promise.all(group.versions.map((version) => this.versionName(version.url)));
+    return names.join(" / ");
+  }
+
+  private async versionName(url: string): Promise<string> {
+    const version = await this.described(`version`, url, (versionId) =>
+      this.upstream.getVersion(versionId),
+    );
+    return localizedName(version.names);
   }
 
   private async itemListEntry(id: number): Promise<ItemListEntry> {
@@ -299,17 +415,17 @@ export class CatalogueGateway {
   }
 }
 
-function firstPrice(
-  prices: { purchase_price: number | null; sell_price: number | null }[] | undefined,
-  field: "purchase_price" | "sell_price",
-): number | null {
-  for (const price of prices ?? []) {
-    const value = price[field];
-    if (typeof value === "number") {
-      return value;
-    }
+function localizedEffect(
+  entries: { effect?: string; short_effect?: string; language: { name: string } }[],
+): string | null {
+  const full = localizedProse(
+    entries.map((entry) => ({ text: entry.effect, language: entry.language })),
+    "text",
+  );
+  if (full) {
+    return full;
   }
-  return null;
+  return localizedProse(entries, "short_effect");
 }
 
 function localizedProse(
