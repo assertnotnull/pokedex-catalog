@@ -1,10 +1,10 @@
 import type { SearchHit, SearchKind, SearchResults } from "./catalogue-gateway";
 
-const detailHref: Record<SearchKind, (id: number) => string> = {
-  games: (id) => `/jeux/${id}`,
-  pokemon: (id) => `/pokemon/${id}`,
-  items: (id) => `/objets/${id}`,
-  locations: (id) => `/lieux/${id}`,
+const detailHref: Record<SearchKind, (hit: SearchHit) => string> = {
+  games: (hit) => `/jeux/${hit.id}`,
+  pokemon: (hit) => `/pokemon/${hit.id}`,
+  items: (hit) => `/objets/${hit.id}`,
+  locations: (hit) => `/lieux/${hit.regionId}/${hit.id}`,
 };
 
 export async function searchCatalogue(
@@ -28,6 +28,6 @@ function withHrefs(kind: SearchKind, hits: SearchHit[]) {
   return hits.map((hit) => ({
     id: hit.id,
     frenchName: hit.frenchName,
-    href: detailHref[kind](hit.id),
+    href: detailHref[kind](hit),
   }));
 }
