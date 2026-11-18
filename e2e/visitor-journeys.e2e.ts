@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { visitorFixtures } from "./fixtures/visitor-catalogue";
+import { visitorFixtures } from "../src/catalogue/visitor-fixtures";
 
 const upstreamHits = new WeakMap<Page, string[]>();
 
@@ -96,6 +96,17 @@ test("a visitor opens a game hub and sees its filtered Pokémon list", async ({ 
   await expect(page.getByRole("link", { name: visitorFixtures.firstName })).toBeVisible();
   await expect(page.getByRole("link", { name: visitorFixtures.midEvolutionName })).toBeVisible();
   await expect(page.getByRole("link", { name: visitorFixtures.secondPageName })).toHaveCount(0);
+});
+
+test("a visitor searches for a Pokémon by its French name", async ({ page }) => {
+  await openPokemonList(page);
+  const search = page.getByRole("search");
+  await search.getByRole("searchbox", { name: "Recherche" }).fill(visitorFixtures.firstName);
+  const hit = search.getByRole("link", { name: visitorFixtures.firstName });
+  await expect(hit).toHaveAttribute("href", `/pokemon/${visitorFixtures.firstId}`);
+  await hit.click();
+  await expect(page).toHaveURL(`/pokemon/${visitorFixtures.firstId}`);
+  await expect(page.getByRole("heading", { level: 1, name: visitorFixtures.firstName })).toBeVisible();
 });
 
 async function openPokemonList(page: Page) {

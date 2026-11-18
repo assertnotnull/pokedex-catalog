@@ -32,6 +32,27 @@ import {
 export const LIST_PAGE_SIZE = 24;
 export const POKEMON_PAGE_SIZE = LIST_PAGE_SIZE;
 const FRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
+export const SEARCH_RESULTS_PER_KIND = 5;
+
+export type SearchHit = {
+  id: number;
+  frenchName: string;
+  regionId?: number;
+};
+
+export type SearchResults = {
+  games: SearchHit[];
+  pokemon: SearchHit[];
+  items: SearchHit[];
+  locations: SearchHit[];
+};
+
+export const SEARCH_KINDS = ["games", "pokemon", "items", "locations"] as const;
+export type SearchKind = (typeof SEARCH_KINDS)[number];
+
+type SearchIndex = {
+  entries: SearchHit[];
+};
 
 export type PokemonListEntry = {
   nationalNumber: number;
@@ -164,6 +185,10 @@ export class CatalogueGateway {
         };
       }),
     );
+    await this.indexListedNames(
+      "locations",
+      entries.map((entry) => ({ id: entry.id, frenchName: entry.frenchName, regionId })),
+    );
     return { total: region.locations.length, entries };
   }
 
@@ -240,6 +265,10 @@ export class CatalogueGateway {
     const entries = await Promise.all(
       list.results.map((result) => this.gameEntry(idFromUrl(result.url))),
     );
+    await this.indexListedNames(
+      "games",
+      entries.map((entry) => ({ id: entry.id, frenchName: entry.frenchName })),
+    );
     return { total: list.count, entries };
   }
 
@@ -255,6 +284,10 @@ export class CatalogueGateway {
     );
     const entries = await Promise.all(
       list.results.map((result) => this.itemListEntry(idFromUrl(result.url))),
+    );
+    await this.indexListedNames(
+      "items",
+      entries.map((entry) => ({ id: entry.id, frenchName: entry.frenchName })),
     );
     return { total: list.count, entries };
   }
@@ -306,7 +339,22 @@ export class CatalogueGateway {
     const entries = await Promise.all(
       list.results.map((result) => this.listEntry(idFromUrl(result.url))),
     );
+    await this.indexListedNames(
+      "pokemon",
+      entries.map((entry) => ({ id: entry.nationalNumber, frenchName: entry.frenchName })),
+    );
     return { total: list.count, entries };
+  }
+
+  async search(query: string): Promise<SearchResults> {
+    const normalized = normalizeFrenchName(query);
+    const results = emptySearchResults();
+    await Promise.all(
+      SEARCH_KINDS.map(async (kind) => {
+        results[kind] = await this.matchKind(kind, normalized);
+      }),
+    );
+    return results;
   }
 
   async getPokemon(id: number): Promise<PokemonDetail> {
@@ -620,6 +668,35 @@ export class CatalogueGateway {
       throw new CatalogueUnavailableError();
     }
   }
+
+  private async indexListedNames(kind: SearchKind, entries: SearchHit[]): Promise<void> {
+    const key = searchIndexKey(kind);
+    const cached = await this.cache.get(key);
+    const current = readSearchIndex(cached?.body);
+    const byId = new Map(current.map((entry) => [entry.id, entry]));
+    const order = current.map((entry) => entry.id);
+    for (const entry of entries) {
+      if (!byId.has(entry.id)) {
+        order.push(entry.id);
+      }
+      byId.set(entry.id, entry);
+    }
+    const indexed = order.flatMap((id) => {
+      const entry = byId.get(id);
+      return entry ? [entry] : [];
+    });
+    await this.cache.set(key, { entries: indexed }, this.clock.now());
+  }
+
+  private async matchKind(kind: SearchKind, normalizedQuery: string): Promise<SearchHit[]> {
+    if (!normalizedQuery) {
+      return [];
+    }
+    const cached = await this.cache.get(searchIndexKey(kind));
+    return readSearchIndex(cached?.body)
+      .filter((entry) => normalizeFrenchName(entry.frenchName).includes(normalizedQuery))
+      .slice(0, SEARCH_RESULTS_PER_KIND);
+  }
 }
 
 function firstPrice(
@@ -687,6 +764,31 @@ function localizedName(names: LocalizedName[]): string {
 
 function flattenEvolution(link: EvolutionLink): EvolutionLink["species"][] {
   return [link.species, ...link.evolves_to.flatMap((next) => flattenEvolution(next))];
+}
+
+function emptySearchResults(): SearchResults {
+  return { games: [], pokemon: [], items: [], locations: [] };
+}
+
+function searchIndexKey(kind: SearchKind): string {
+  return `search-index:${kind}`;
+}
+
+function readSearchIndex(body: unknown): SearchHit[] {
+  if (!body || typeof body !== "object" || !("entries" in body)) {
+    return [];
+  }
+  const entries = (body as SearchIndex).entries;
+  return Array.isArray(entries) ? entries : [];
+}
+
+function normalizeFrenchName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function idFromUrl(url: string): number {

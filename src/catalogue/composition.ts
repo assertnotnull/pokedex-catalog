@@ -6,6 +6,7 @@ import { Clock, FixedClock, SystemClock } from "./clock";
 import { PokeApi } from "./poke-api";
 import { PokeApiClient } from "./poke-api-client";
 import { RedisCacheStore } from "./redis-cache-store";
+import { fixtureSearchEntries } from "./visitor-fixtures";
 
 let gateway: CatalogueGateway | undefined;
 
@@ -45,7 +46,14 @@ function clockFromEnv(): Clock {
 function cacheStoreFromEnv(): CacheStore {
   // The visitor E2E server sets this so journeys never need Redis or a live upstream.
   if (catalogueFixturesEnabled()) {
-    return new InMemoryCacheStore();
+    // List pages can be prerendered in another process, so the in-memory search
+    // index is seeded with the same fixed names the visitor journeys expect.
+    const cache = new InMemoryCacheStore();
+    const storedAt = 1_700_000_000_000;
+    for (const [kind, entries] of Object.entries(fixtureSearchEntries())) {
+      void cache.set(`search-index:${kind}`, { entries }, storedAt);
+    }
+    return cache;
   }
   const backend = process.env.CACHE_BACKEND;
   if (backend === "redis") {

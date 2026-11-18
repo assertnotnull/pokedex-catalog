@@ -1,4 +1,4 @@
-import { pokeApiFixture } from "./visitor-catalogue";
+import { pokeApiFixture } from "../../src/catalogue/visitor-fixtures";
 
 const MARKER = "__pokedexCatalogueFixtures";
 

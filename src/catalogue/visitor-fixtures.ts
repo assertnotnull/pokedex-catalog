@@ -26,6 +26,24 @@ type Named = { name: string; url: string };
 
 type FixtureResponse = { status: number; body: unknown };
 
+export function fixtureSearchEntries(): {
+  games: { id: number; frenchName: string }[];
+  pokemon: { id: number; frenchName: string }[];
+  items: { id: number; frenchName: string }[];
+  locations: { id: number; frenchName: string }[];
+} {
+  const pokemon = [];
+  for (let id = 1; id <= visitorFixtures.total; id += 1) {
+    pokemon.push({ id, frenchName: frenchName(id) });
+  }
+  return {
+    games: [{ id: visitorFixtures.gameId, frenchName: visitorFixtures.gameName }],
+    pokemon,
+    items: [],
+    locations: [],
+  };
+}
+
 function frenchName(id: number): string {
   if (id === visitorFixtures.firstId) return visitorFixtures.firstName;
   if (id === 2) return visitorFixtures.midEvolutionName;
