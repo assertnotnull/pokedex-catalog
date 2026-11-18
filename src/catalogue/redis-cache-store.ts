@@ -1,7 +1,11 @@
 import { createClient } from "redis";
 import { CacheStore, type StoredPayload } from "./cache-store";
 
-type RedisClient = ReturnType<typeof createClient>;
+function openRedis(url: string) {
+  return createClient({ url });
+}
+
+type RedisClient = ReturnType<typeof openRedis>;
 
 /**
  * Redis-protocol cache used for local Redis and for Vercel KV.
@@ -31,7 +35,7 @@ export class RedisCacheStore extends CacheStore {
     if (this.client?.isOpen) {
       return this.client;
     }
-    const client = createClient({ url: this.url });
+    const client = openRedis(this.url);
     client.on("error", (error) => {
       console.error("Redis client error", error);
     });

@@ -13,7 +13,11 @@ const STORAGE_KEY = "catalogue-theme";
 const THEME_EVENT = "catalogue-theme";
 
 export function ThemeToggle() {
-  const theme = useSyncExternalStore(subscribe, readTheme, () => CATALOGUE_THEME_LIGHT);
+  const theme = useSyncExternalStore<CatalogueTheme>(
+    subscribe,
+    readTheme,
+    () => CATALOGUE_THEME_LIGHT,
+  );
 
   function toggle() {
     const next: CatalogueTheme = isDarkCatalogueTheme(readTheme())
