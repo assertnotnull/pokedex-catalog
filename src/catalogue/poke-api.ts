@@ -74,6 +74,35 @@ export type GenerationPayload = {
   names: LocalizedName[];
 };
 
+export type RegionPayload = {
+  id: number;
+  names: LocalizedName[];
+  locations: NamedResource[];
+};
+
+export type LocationPayload = {
+  id: number;
+  names: LocalizedName[];
+  region: NamedResource;
+  areas: NamedResource[];
+};
+
+export type LocationAreaPayload = {
+  id: number;
+  pokemon_encounters: {
+    pokemon: NamedResource;
+    version_details: {
+      version: NamedResource;
+      encounter_details: {
+        min_level: number;
+        max_level: number;
+        chance: number;
+        method: NamedResource;
+      }[];
+    }[];
+  }[];
+};
+
 export type ItemPayload = {
   id: number;
   prices: { purchase_price: number | null; sell_price: number | null }[];
@@ -103,4 +132,9 @@ export abstract class PokeApi {
   abstract getVersion(id: number): Promise<VersionPayload>;
   abstract getVersionGroup(id: number): Promise<VersionGroupPayload>;
   abstract getGeneration(id: number): Promise<GenerationPayload>;
+  abstract listRegions(offset: number, limit: number): Promise<PokemonPage>;
+  abstract getRegion(id: number): Promise<RegionPayload>;
+  abstract getLocation(id: number): Promise<LocationPayload>;
+  abstract getLocationArea(id: number): Promise<LocationAreaPayload>;
+  abstract getEncounterMethod(id: number): Promise<DescribedPayload>;
 }

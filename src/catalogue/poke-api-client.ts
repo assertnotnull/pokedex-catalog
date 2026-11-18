@@ -5,7 +5,10 @@ import {
   type EvolutionChainPayload,
   type GenerationPayload,
   type ItemPayload,
+  type LocationAreaPayload,
+  type LocationPayload,
   type PokemonPage,
+  type RegionPayload,
   type VersionGroupPayload,
   type VersionPayload,
   type PokemonPayload,
@@ -78,6 +81,26 @@ export class PokeApiClient extends PokeApi {
 
   getGeneration(id: number): Promise<GenerationPayload> {
     return this.get(`${ROOT}/generation/${id}/`);
+  }
+
+  listRegions(offset: number, limit: number): Promise<PokemonPage> {
+    return this.get(`${ROOT}/region?limit=${limit}&offset=${offset}`);
+  }
+
+  getRegion(id: number): Promise<RegionPayload> {
+    return this.get(`${ROOT}/region/${id}/`);
+  }
+
+  getLocation(id: number): Promise<LocationPayload> {
+    return this.get(`${ROOT}/location/${id}/`);
+  }
+
+  getLocationArea(id: number): Promise<LocationAreaPayload> {
+    return this.get(`${ROOT}/location-area/${id}/`);
+  }
+
+  getEncounterMethod(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/encounter-method/${id}/`);
   }
 
   private async get<T>(url: string): Promise<T> {

@@ -5,7 +5,9 @@ import {
   CatalogueUnavailableError,
   UnknownGameError,
   UnknownItemError,
+  UnknownLocationError,
   UnknownPokemonError,
+  UnknownRegionError,
 } from "./errors";
 import {
   PokeApi,
@@ -16,6 +18,9 @@ import {
   type GenerationPayload,
   type ItemPayload,
   type LocalizedName,
+  type LocationAreaPayload,
+  type LocationPayload,
+  type RegionPayload,
   type VersionGroupPayload,
   type VersionPayload,
   type PokemonPayload,
@@ -37,6 +42,44 @@ export type PokemonListEntry = {
 export type PokemonListPage = {
   total: number;
   entries: PokemonListEntry[];
+};
+
+export type RegionSummary = {
+  id: number;
+  frenchName: string;
+  locationCount: number;
+};
+
+export type LocationListEntry = {
+  id: number;
+  frenchName: string;
+  regionName: string;
+};
+
+export type LocationListPage = {
+  total: number;
+  entries: LocationListEntry[];
+};
+
+export type LocationEncounter = {
+  nationalNumber: number;
+  frenchName: string;
+  appearances: {
+    gameId: number;
+    gameName: string;
+    method: string;
+    minLevel: number;
+    maxLevel: number;
+    chance: number;
+  }[];
+};
+
+export type LocationDetail = {
+  id: number;
+  frenchName: string;
+  regionId: number;
+  regionName: string;
+  encounters: LocationEncounter[];
 };
 
 export type GameListEntry = {
@@ -94,6 +137,41 @@ export class CatalogueGateway {
     private readonly upstream = inject(PokeApi),
     private readonly clock = inject(Clock),
   ) {}
+
+  async listRegions(): Promise<RegionSummary[]> {
+    const list = await this.load("region-list:100:0", () => this.upstream.listRegions(0, 100));
+    return Promise.all(list.results.map((result) => this.regionSummary(idFromUrl(result.url))));
+  }
+
+  async listLocations(regionId: number, page: number): Promise<LocationListPage> {
+    const region = await this.regionOrNotFound(regionId);
+    const start = (page - 1) * LIST_PAGE_SIZE;
+    const slice = region.locations.slice(start, start + LIST_PAGE_SIZE);
+    const regionName = localizedName(region.names);
+    const entries = await Promise.all(
+      slice.map(async (ref) => {
+        const id = idFromUrl(ref.url);
+        const location = await this.load<LocationPayload>(`location:${id}`, () =>
+          this.upstream.getLocation(id),
+        );
+        return { id: location.id, frenchName: localizedName(location.names), regionName };
+      }),
+    );
+    return { total: region.locations.length, entries };
+  }
+
+  async getLocation(id: number): Promise<LocationDetail> {
+    const location = await this.locationOrNotFound(id);
+    const regionId = idFromUrl(location.region.url);
+    const region = await this.regionOrNotFound(regionId);
+    return {
+      id: location.id,
+      frenchName: localizedName(location.names),
+      regionId,
+      regionName: localizedName(region.names),
+      encounters: await this.encounters(location),
+    };
+  }
 
   async listGames(page: number): Promise<GameListPage> {
     const offset = (page - 1) * LIST_PAGE_SIZE;
@@ -235,6 +313,82 @@ export class CatalogueGateway {
       moves,
       evolutions,
     };
+  }
+
+  private async regionSummary(id: number): Promise<RegionSummary> {
+    const region = await this.regionOrNotFound(id);
+    return {
+      id: region.id,
+      frenchName: localizedName(region.names),
+      locationCount: region.locations.length,
+    };
+  }
+
+  private async encounters(location: LocationPayload): Promise<LocationEncounter[]> {
+    const byPokemon = new Map<number, LocationEncounter>();
+    for (const areaRef of location.areas) {
+      const areaId = idFromUrl(areaRef.url);
+      const area = await this.load<LocationAreaPayload>(`location-area:${areaId}`, () =>
+        this.upstream.getLocationArea(areaId),
+      );
+      for (const encounter of area.pokemon_encounters) {
+        const nationalNumber = idFromUrl(encounter.pokemon.url);
+        const pokemon = await this.load<PokemonPayload>(`pokemon:${nationalNumber}`, () =>
+          this.upstream.getPokemon(nationalNumber),
+        );
+        const species = await this.species(pokemon);
+        const current = byPokemon.get(nationalNumber) ?? {
+          nationalNumber,
+          frenchName: localizedName(species.names),
+          appearances: [],
+        };
+        for (const versionDetail of encounter.version_details) {
+          const gameId = idFromUrl(versionDetail.version.url);
+          const version = await this.load<VersionPayload>(`version:${gameId}`, () =>
+            this.upstream.getVersion(gameId),
+          );
+          for (const detail of versionDetail.encounter_details) {
+            const method = await this.described(
+              "encounter-method",
+              detail.method.url,
+              (methodId) => this.upstream.getEncounterMethod(methodId),
+            );
+            current.appearances.push({
+              gameId,
+              gameName: localizedName(version.names),
+              method: localizedName(method.names),
+              minLevel: detail.min_level,
+              maxLevel: detail.max_level,
+              chance: detail.chance,
+            });
+          }
+        }
+        byPokemon.set(nationalNumber, current);
+      }
+    }
+    return [...byPokemon.values()];
+  }
+
+  private async regionOrNotFound(id: number): Promise<RegionPayload> {
+    try {
+      return await this.load(`region:${id}`, () => this.upstream.getRegion(id));
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        throw new UnknownRegionError(id);
+      }
+      throw error;
+    }
+  }
+
+  private async locationOrNotFound(id: number): Promise<LocationPayload> {
+    try {
+      return await this.load(`location:${id}`, () => this.upstream.getLocation(id));
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        throw new UnknownLocationError(id);
+      }
+      throw error;
+    }
   }
 
   private async gameEntry(id: number): Promise<GameListEntry> {

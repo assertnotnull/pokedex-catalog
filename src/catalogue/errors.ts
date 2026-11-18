@@ -12,6 +12,20 @@ export class UnknownPokemonError extends Error {
   }
 }
 
+export class UnknownRegionError extends Error {
+  constructor(readonly id: number) {
+    super(`Region ${id} was not found`);
+    this.name = "UnknownRegionError";
+  }
+}
+
+export class UnknownLocationError extends Error {
+  constructor(readonly id: number) {
+    super(`Location ${id} was not found`);
+    this.name = "UnknownLocationError";
+  }
+}
+
 export class UnknownGameError extends Error {
   constructor(readonly id: number) {
     super(`Game ${id} was not found`);

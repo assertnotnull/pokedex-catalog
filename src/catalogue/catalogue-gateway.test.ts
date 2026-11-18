@@ -7,7 +7,9 @@ import {
   CatalogueUnavailableError,
   UnknownGameError,
   UnknownItemError,
+  UnknownLocationError,
   UnknownPokemonError,
+  UnknownRegionError,
 } from "./errors";
 import {
   PokeApi,
@@ -16,6 +18,9 @@ import {
   type EvolutionChainPayload,
   type GenerationPayload,
   type ItemPayload,
+  type LocationAreaPayload,
+  type LocationPayload,
+  type RegionPayload,
   type PokemonPage,
   type VersionGroupPayload,
   type VersionPayload,
@@ -49,6 +54,11 @@ type CatalogueFixture = {
   versions?: Map<number, VersionPayload>;
   versionGroups?: Map<number, VersionGroupPayload>;
   generations?: Map<number, GenerationPayload>;
+  regionPages?: Map<string, PokemonPage>;
+  regions?: Map<number, RegionPayload>;
+  locations?: Map<number, LocationPayload>;
+  locationAreas?: Map<number, LocationAreaPayload>;
+  encounterMethods?: Map<number, DescribedPayload>;
 };
 
 function emptyRelated(): Pick<
@@ -370,6 +380,74 @@ describe("catalogue gateway", () => {
     const { gateway } = openGateway(gameCatalogue());
 
     await expect(gateway.getGame(404)).rejects.toBeInstanceOf(UnknownGameError);
+  });
+
+  test("a region index lists French names and how many locations each region holds", async () => {
+    const { gateway } = openGateway(placeCatalogue());
+
+    expect(await gateway.listRegions()).toEqual([
+      { id: 1, frenchName: "Kanto", locationCount: 25 },
+      { id: 2, frenchName: "Johto", locationCount: 0 },
+    ]);
+  });
+
+  test("locations in a region are pages of 24 tiles with the region name", async () => {
+    const { gateway } = openGateway(placeCatalogue());
+
+    const first = await gateway.listLocations(1, 1);
+    const second = await gateway.listLocations(1, 2);
+
+    expect(first.total).toBe(25);
+    expect(first.entries).toHaveLength(24);
+    expect(first.entries[0]).toEqual({ id: 1, frenchName: "Lieu 1", regionName: "Kanto" });
+    expect(first.entries[1]).toEqual({ id: 2, frenchName: "Route Two", regionName: "Kanto" });
+    expect(second.entries).toEqual([{ id: 25, frenchName: "Lieu 25", regionName: "Kanto" }]);
+  });
+
+  test("a region with no locations is an empty page", async () => {
+    const { gateway } = openGateway(placeCatalogue());
+
+    expect(await gateway.listLocations(2, 1)).toEqual({ total: 0, entries: [] });
+  });
+
+  test("a location detail lists encounters when the source provides them", async () => {
+    const { gateway } = openGateway(placeCatalogue());
+
+    expect(await gateway.getLocation(10)).toEqual({
+      id: 10,
+      frenchName: "Bourg Palette",
+      regionId: 1,
+      regionName: "Kanto",
+      encounters: [
+        {
+          nationalNumber: 25,
+          frenchName: "Pikachu",
+          appearances: [
+            {
+              gameId: 1,
+              gameName: "Rouge",
+              method: "Marche",
+              minLevel: 2,
+              maxLevel: 4,
+              chance: 10,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  test("a location without areas has no encounters", async () => {
+    const { gateway } = openGateway(placeCatalogue());
+
+    expect((await gateway.getLocation(1)).encounters).toEqual([]);
+  });
+
+  test("a missing region or location is a not-found error", async () => {
+    const { gateway } = openGateway(placeCatalogue());
+
+    await expect(gateway.listLocations(404, 1)).rejects.toBeInstanceOf(UnknownRegionError);
+    await expect(gateway.getLocation(404)).rejects.toBeInstanceOf(UnknownLocationError);
   });
 });
 
@@ -888,6 +966,138 @@ function gameCatalogue(): CatalogueFixture {
   };
 }
 
+function placeCatalogue(): CatalogueFixture {
+  const locations = new Map<number, LocationPayload>();
+  const refs: { name: string; url: string }[] = [];
+  for (let id = 1; id <= 25; id += 1) {
+    refs.push({ name: `lieu-${id}`, url: `https://pokeapi.co/api/v2/location/${id}/` });
+    locations.set(id, {
+      id,
+      names:
+        id === 2
+          ? [{ name: "Route Two", language: { name: "en" } }]
+          : [
+              { name: `Place ${id}`, language: { name: "en" } },
+              { name: `Lieu ${id}`, language: { name: "fr" } },
+            ],
+      region: { name: "kanto", url: "https://pokeapi.co/api/v2/region/1/" },
+      areas: [],
+    });
+  }
+  locations.set(10, {
+    id: 10,
+    names: [
+      { name: "Pallet Town", language: { name: "en" } },
+      { name: "Bourg Palette", language: { name: "fr" } },
+    ],
+    region: { name: "kanto", url: "https://pokeapi.co/api/v2/region/1/" },
+    areas: [{ name: "pallet-town-area", url: "https://pokeapi.co/api/v2/location-area/10/" }],
+  });
+
+  return {
+    pages: new Map(),
+    pokemon: new Map([
+      [
+        25,
+        {
+          id: 25,
+          sprites: { front_default: null },
+          types: [],
+          stats: [],
+          abilities: [],
+          moves: [],
+          species: { name: "pikachu", url: "https://pokeapi.co/api/v2/pokemon-species/25/" },
+        },
+      ],
+    ]),
+    species: new Map([[25, { id: 25, names: [{ name: "Pikachu", language: { name: "fr" } }] }]]),
+    types: new Map(),
+    ...emptyRelated(),
+    versions: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [{ name: "Rouge", language: { name: "fr" } }],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+    ]),
+    regionPages: new Map([
+      [
+        "0:100",
+        {
+          count: 2,
+          results: [
+            { name: "kanto", url: "https://pokeapi.co/api/v2/region/1/" },
+            { name: "johto", url: "https://pokeapi.co/api/v2/region/2/" },
+          ],
+        },
+      ],
+    ]),
+    regions: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Kanto", language: { name: "en" } },
+            { name: "Kanto", language: { name: "fr" } },
+          ],
+          locations: refs,
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          names: [{ name: "Johto", language: { name: "en" } }],
+          locations: [],
+        },
+      ],
+    ]),
+    locations,
+    locationAreas: new Map([
+      [
+        10,
+        {
+          id: 10,
+          pokemon_encounters: [
+            {
+              pokemon: { name: "pikachu", url: "https://pokeapi.co/api/v2/pokemon/25/" },
+              version_details: [
+                {
+                  version: { name: "red", url: "https://pokeapi.co/api/v2/version/1/" },
+                  encounter_details: [
+                    {
+                      min_level: 2,
+                      max_level: 4,
+                      chance: 10,
+                      method: { name: "walk", url: "https://pokeapi.co/api/v2/encounter-method/1/" },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    ]),
+    encounterMethods: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Walk", language: { name: "en" } },
+            { name: "Marche", language: { name: "fr" } },
+          ],
+        },
+      ],
+    ]),
+  };
+}
+
 function openGateway(fixture: CatalogueFixture = defaultCatalogue()) {
   const cache = new InMemoryCacheStore();
   const clock = new FixedClock(T0);
@@ -989,6 +1199,29 @@ class FakePokeApi extends PokeApi {
 
   getGeneration(id: number): Promise<GenerationPayload> {
     return this.read(() => this.fixture.generations?.get(id), `generation ${id}`);
+  }
+
+  listRegions(offset: number, limit: number): Promise<PokemonPage> {
+    return this.read(
+      () => this.fixture.regionPages?.get(`${offset}:${limit}`),
+      `region page ${offset}:${limit}`,
+    );
+  }
+
+  getRegion(id: number): Promise<RegionPayload> {
+    return this.read(() => this.fixture.regions?.get(id), `region ${id}`, true);
+  }
+
+  getLocation(id: number): Promise<LocationPayload> {
+    return this.read(() => this.fixture.locations?.get(id), `location ${id}`, true);
+  }
+
+  getLocationArea(id: number): Promise<LocationAreaPayload> {
+    return this.read(() => this.fixture.locationAreas?.get(id), `location area ${id}`);
+  }
+
+  getEncounterMethod(id: number): Promise<DescribedPayload> {
+    return this.read(() => this.fixture.encounterMethods?.get(id), `encounter method ${id}`);
   }
 
   private read<T>(load: () => T | undefined, label: string, missingIsNotFound = false): Promise<T> {
