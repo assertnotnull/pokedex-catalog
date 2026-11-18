@@ -28,6 +28,15 @@ bun test
 
 Gateway tests use an in-memory cache and a fake upstream. They do not need Redis.
 
+Visitor journeys run in Playwright against `next build` and `next start`:
+
+```bash
+bunx playwright install chromium
+bun run test:e2e
+```
+
+`CATALOGUE_FIXTURES=1` (set by the Playwright web server) answers catalogue reads from a fixed fixture and stores them in memory. Those runs do not call PokeAPI and do not need Redis. CI runs the same script.
+
 ## Environment
 
 | Variable | Required when | Purpose |

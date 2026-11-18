@@ -1,8 +1,8 @@
 import "server-only";
 import { Container } from "@needle-di/core";
-import { CacheStore } from "./cache-store";
+import { CacheStore, InMemoryCacheStore } from "./cache-store";
 import { CatalogueGateway } from "./catalogue-gateway";
-import { Clock, SystemClock } from "./clock";
+import { Clock, FixedClock, SystemClock } from "./clock";
 import { PokeApi } from "./poke-api";
 import { PokeApiClient } from "./poke-api-client";
 import { RedisCacheStore } from "./redis-cache-store";
@@ -18,7 +18,7 @@ function createGateway(): CatalogueGateway {
   const container = new Container();
   container.bind({ provide: CacheStore, useValue: cacheStoreFromEnv() });
   container.bind({ provide: PokeApi, useValue: new PokeApiClient() });
-  container.bind({ provide: Clock, useValue: new SystemClock() });
+  container.bind({ provide: Clock, useValue: clockFromEnv() });
   // Next's compiler does not keep the @injectable registration, so the
   // composition root binds the gateway explicitly. Tests still resolve it
   // through the decorator.
@@ -30,7 +30,23 @@ function createGateway(): CatalogueGateway {
   return container.get(CatalogueGateway);
 }
 
+function catalogueFixturesEnabled(): boolean {
+  return process.env["CATALOGUE_FIXTURES"] === "1";
+}
+
+function clockFromEnv(): Clock {
+  // A fixed clock lets the fixture server prerender without reading the current time.
+  if (catalogueFixturesEnabled()) {
+    return new FixedClock(1_700_000_000_000);
+  }
+  return new SystemClock();
+}
+
 function cacheStoreFromEnv(): CacheStore {
+  // The visitor E2E server sets this so journeys never need Redis or a live upstream.
+  if (catalogueFixturesEnabled()) {
+    return new InMemoryCacheStore();
+  }
   const backend = process.env.CACHE_BACKEND;
   if (backend === "redis") {
     return new RedisCacheStore(requiredEnv("REDIS_URL"));
