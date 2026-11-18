@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { CatalogueUnavailable } from "../../components/catalogue-unavailable";
 import { Sprite } from "../../components/sprite";
@@ -22,10 +21,13 @@ export default function ItemDetailPage({ params }: PageProps<"/objets/[id]">) {
 async function ItemDetailView({ params }: { params: PageProps<"/objets/[id]">["params"] }) {
   const { id } = await params;
   if (!/^[1-9]\d*$/.test(id)) {
-    notFound();
+    return <MissingItem />;
   }
 
   const item = await loadItem(Number(id));
+  if (item === "missing") {
+    return <MissingItem />;
+  }
   if (item === "unavailable") {
     return (
       <div className="mx-auto w-full max-w-6xl px-4 py-10">
@@ -37,12 +39,24 @@ async function ItemDetailView({ params }: { params: PageProps<"/objets/[id]">["p
   return <ItemDetailContent item={item} />;
 }
 
-async function loadItem(id: number): Promise<ItemDetail | "unavailable"> {
+function MissingItem() {
+  return (
+    <div className="catalogue-page gap-4">
+      <h1 className="font-display text-4xl">Objet introuvable</h1>
+      <p>Ce numéro ne correspond à aucun objet du catalogue.</p>
+      <Link href="/objets" className="btn btn-primary w-fit">
+        Retour à la liste
+      </Link>
+    </div>
+  );
+}
+
+async function loadItem(id: number): Promise<ItemDetail | "missing" | "unavailable"> {
   try {
     return await getCatalogueGateway().getItem(id);
   } catch (error) {
     if (error instanceof UnknownItemError) {
-      notFound();
+      return "missing";
     }
     if (error instanceof CatalogueUnavailableError) {
       return "unavailable";

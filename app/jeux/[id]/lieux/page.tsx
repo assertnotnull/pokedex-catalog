@@ -1,10 +1,9 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { CatalogueUnavailable } from "../../../components/catalogue-unavailable";
+import { GameFrame } from "../../../components/game-frame";
 import { Pagination } from "../../../components/pagination";
 import { parsePage } from "../../../parse-page";
-import { parseGameId } from "../parse-game-id";
 import { getCatalogueGateway } from "@/src/catalogue/composition";
 import {
   LIST_PAGE_SIZE,
@@ -22,8 +21,10 @@ export default function GameLocationPage({
   searchParams,
 }: PageProps<"/jeux/[id]/lieux">) {
   return (
-    <Suspense fallback={<p>Chargement des lieux…</p>}>
-      <GameLocationList params={params} searchParams={searchParams} />
+    <Suspense fallback={<p className="mx-auto max-w-6xl px-4 py-10">Chargement du jeu…</p>}>
+      <GameFrame params={params}>
+        <GameLocationList params={params} searchParams={searchParams} />
+      </GameFrame>
     </Suspense>
   );
 }
@@ -38,13 +39,13 @@ async function GameLocationList({
   const { id: rawId } = await params;
   const id = parseGameId(rawId);
   if (id === null) {
-    notFound();
+    return null;
   }
   const { page: rawPage } = await searchParams;
   const page = parsePage(rawPage);
   const list = await loadList(id, page);
   if (list === "missing") {
-    notFound();
+    return null;
   }
   if (list === "unavailable") {
     return <CatalogueUnavailable />;
@@ -72,6 +73,13 @@ async function GameLocationList({
       />
     </section>
   );
+}
+
+function parseGameId(raw: string): number | null {
+  if (!/^[1-9]\d*$/.test(raw)) {
+    return null;
+  }
+  return Number(raw);
 }
 
 async function loadList(

@@ -3,6 +3,7 @@ import {
   UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
+  type GenerationPayload,
   type ItemPayload,
   type LocationPayload,
   type PokemonPage,
@@ -66,12 +67,20 @@ export class PokeApiClient extends PokeApi {
     return this.get(`${ROOT}/item-attribute/${id}/`);
   }
 
+  listVersions(offset: number, limit: number): Promise<PokemonPage> {
+    return this.get(`${ROOT}/version?limit=${limit}&offset=${offset}`);
+  }
+
   getVersion(id: number): Promise<VersionPayload> {
     return this.get(`${ROOT}/version/${id}/`);
   }
 
   getVersionGroup(id: number): Promise<VersionGroupPayload> {
     return this.get(`${ROOT}/version-group/${id}/`);
+  }
+
+  getGeneration(id: number): Promise<GenerationPayload> {
+    return this.get(`${ROOT}/generation/${id}/`);
   }
 
   getPokedex(id: number): Promise<PokedexPayload> {

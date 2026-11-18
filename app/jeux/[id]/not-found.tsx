@@ -6,7 +6,7 @@ export default function GameNotFound() {
       <h1 className="font-display text-4xl">Jeu introuvable</h1>
       <p>Ce numéro ne correspond à aucun jeu du catalogue.</p>
       <Link href="/jeux" className="btn btn-primary w-fit">
-        Retour aux jeux
+        Retour à la liste
       </Link>
     </div>
   );

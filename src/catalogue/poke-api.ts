@@ -56,32 +56,22 @@ export type EvolutionChainPayload = {
   chain: EvolutionLink;
 };
 
-export type ItemPayload = {
-  id: number;
-  prices: { purchase_price: number | null; sell_price: number | null }[];
-  sprites: { default: string | null };
-  category: NamedResource;
-  attributes: NamedResource[];
-  effect_entries: { short_effect: string; language: { name: string } }[];
-  flavor_text_entries: { text: string; language: { name: string } }[];
-  names: LocalizedName[];
-  held_by_pokemon: { pokemon: NamedResource }[];
-  game_indices?: { generation: NamedResource }[];
-};
-
 export type VersionPayload = {
   id: number;
-  name: string;
   names: LocalizedName[];
   version_group: NamedResource;
 };
 
 export type VersionGroupPayload = {
   id: number;
-  name: string;
   generation?: NamedResource;
-  pokedexes: NamedResource[];
   regions: NamedResource[];
+  pokedexes: NamedResource[];
+};
+
+export type GenerationPayload = {
+  id: number;
+  names: LocalizedName[];
 };
 
 export type PokedexPayload = {
@@ -100,6 +90,19 @@ export type LocationPayload = {
   names: LocalizedName[];
 };
 
+export type ItemPayload = {
+  id: number;
+  prices: { purchase_price: number | null; sell_price: number | null }[];
+  sprites: { default: string | null };
+  category: NamedResource;
+  attributes: NamedResource[];
+  effect_entries: { short_effect: string; language: { name: string } }[];
+  flavor_text_entries: { text: string; language: { name: string } }[];
+  names: LocalizedName[];
+  held_by_pokemon: { pokemon: NamedResource }[];
+  game_indices?: { generation: NamedResource }[];
+};
+
 export abstract class PokeApi {
   abstract listPokemon(offset: number, limit: number): Promise<PokemonPage>;
   abstract getPokemon(id: number): Promise<PokemonPayload>;
@@ -113,8 +116,10 @@ export abstract class PokeApi {
   abstract getItem(id: number): Promise<ItemPayload>;
   abstract getItemCategory(id: number): Promise<DescribedPayload>;
   abstract getItemAttribute(id: number): Promise<DescribedPayload>;
+  abstract listVersions(offset: number, limit: number): Promise<PokemonPage>;
   abstract getVersion(id: number): Promise<VersionPayload>;
   abstract getVersionGroup(id: number): Promise<VersionGroupPayload>;
+  abstract getGeneration(id: number): Promise<GenerationPayload>;
   abstract getPokedex(id: number): Promise<PokedexPayload>;
   abstract getRegion(id: number): Promise<RegionPayload>;
   abstract getLocation(id: number): Promise<LocationPayload>;
