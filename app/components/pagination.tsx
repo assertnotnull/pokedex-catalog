@@ -5,17 +5,19 @@ export function Pagination({
   page,
   total,
   pageSize,
+  basePath,
 }: {
   page: number;
   total: number;
   pageSize: number;
+  basePath: string;
 }) {
   const last = Math.max(1, Math.ceil(total / pageSize));
   const items = pageWindow(page, last);
 
   return (
     <nav aria-label="Pagination" className="flex flex-wrap items-center gap-2">
-      <PageLink page={page - 1} disabled={page <= 1}>
+      <PageLink page={page - 1} disabled={page <= 1} basePath={basePath}>
         Page précédente
       </PageLink>
       <ol className="flex flex-wrap items-center gap-1">
@@ -26,14 +28,14 @@ export function Pagination({
             </li>
           ) : (
             <li key={item}>
-              <PageLink page={item} current={item === page}>
+              <PageLink page={item} current={item === page} basePath={basePath}>
                 {item}
               </PageLink>
             </li>
           ),
         )}
       </ol>
-      <PageLink page={page + 1} disabled={page >= last}>
+      <PageLink page={page + 1} disabled={page >= last} basePath={basePath}>
         Page suivante
       </PageLink>
     </nav>
@@ -42,11 +44,13 @@ export function Pagination({
 
 function PageLink({
   page,
+  basePath,
   disabled = false,
   current = false,
   children,
 }: {
   page: number;
+  basePath: string;
   disabled?: boolean;
   current?: boolean;
   children: ReactNode;
@@ -62,7 +66,7 @@ function PageLink({
 
   return (
     <Link
-      href={page === 1 ? "/pokemon" : `/pokemon?page=${page}`}
+      href={page === 1 ? basePath : `${basePath}?page=${page}`}
       className={className}
       aria-current={current ? "page" : undefined}
     >

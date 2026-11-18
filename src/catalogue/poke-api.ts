@@ -56,6 +56,22 @@ export type EvolutionChainPayload = {
   chain: EvolutionLink;
 };
 
+export type VersionPage = {
+  count: number;
+  results: NamedResource[];
+};
+
+export type VersionPayload = {
+  id: number;
+  names: LocalizedName[];
+  version_group: NamedResource;
+};
+
+export type VersionGroupPayload = {
+  id: number;
+  generation: NamedResource;
+};
+
 export abstract class PokeApi {
   abstract listPokemon(offset: number, limit: number): Promise<PokemonPage>;
   abstract getPokemon(id: number): Promise<PokemonPayload>;
@@ -65,4 +81,8 @@ export abstract class PokeApi {
   abstract getAbility(id: number): Promise<DescribedPayload>;
   abstract getMove(id: number): Promise<DescribedPayload>;
   abstract getStat(id: number): Promise<DescribedPayload>;
+  abstract listVersions(offset: number, limit: number): Promise<VersionPage>;
+  abstract getVersion(id: number): Promise<VersionPayload>;
+  abstract getVersionGroup(id: number): Promise<VersionGroupPayload>;
+  abstract getGeneration(id: number): Promise<DescribedPayload>;
 }
