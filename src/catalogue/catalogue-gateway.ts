@@ -6,7 +6,9 @@ import {
   MissingLocalizedNameError,
   UnknownGameError,
   UnknownItemError,
+  UnknownLocationError,
   UnknownPokemonError,
+  UnknownRegionError,
 } from "./errors";
 import {
   PokeApi,
@@ -17,7 +19,9 @@ import {
   type GenerationPayload,
   type ItemPayload,
   type LocalizedName,
+  type LocationAreaPayload,
   type LocationPayload,
+  type NamedResource,
   type PokemonPayload,
   type PokedexPayload,
   type RegionPayload,
@@ -29,8 +33,44 @@ import {
 
 export const LIST_PAGE_SIZE = 24;
 export const POKEMON_PAGE_SIZE = LIST_PAGE_SIZE;
+export const LOCATION_PAGE_SIZE = LIST_PAGE_SIZE;
+const REGION_INDEX_PAGE_SIZE = 24;
 const FRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 const UPSTREAM_CONCURRENCY = 16;
+
+export type RegionListEntry = {
+  id: number;
+  frenchName: string;
+};
+
+export type LocationListEntry = {
+  id: number;
+  frenchName: string;
+  regionName: string;
+};
+
+export type LocationListPage = {
+  total: number;
+  regionName: string;
+  entries: LocationListEntry[];
+};
+
+export type LocationEncounter = {
+  pokemonId: number;
+  frenchName: string;
+  method: string;
+  versions: string[];
+  minLevel: number;
+  maxLevel: number;
+};
+
+export type LocationDetail = {
+  id: number;
+  frenchName: string;
+  regionId: number;
+  regionName: string;
+  encounters: LocationEncounter[];
+};
 
 export type PokemonListEntry = {
   nationalNumber: number;
@@ -79,16 +119,16 @@ export type PokemonDetail = {
   evolutions: { nationalNumber: number; frenchName: string }[];
 };
 
-export type LocationListEntry = {
+export type GameLocationEntry = {
   id: number;
   frenchName: string;
   region: string;
   regionId: number;
 };
 
-export type LocationListPage = {
+export type GameLocationPage = {
   total: number;
-  entries: LocationListEntry[];
+  entries: GameLocationEntry[];
 };
 
 export type ItemDetail = {
@@ -204,7 +244,7 @@ export class CatalogueGateway {
     };
   }
 
-  async listLocationsForGame(gameId: number, page: number): Promise<LocationListPage> {
+  async listLocationsForGame(gameId: number, page: number): Promise<GameLocationPage> {
     const places = await this.placesForGame(gameId);
     const loaded = await mapPool(places, UPSTREAM_CONCURRENCY, async (place) => {
       const location = await this.locationOrMissing(place.id);
@@ -219,9 +259,53 @@ export class CatalogueGateway {
         regionId: place.regionId,
       };
     });
-    const resolved = loaded.filter((entry): entry is LocationListEntry => entry !== null);
+    const resolved = loaded.filter((entry): entry is GameLocationEntry => entry !== null);
     const offset = (page - 1) * LIST_PAGE_SIZE;
     return { total: resolved.length, entries: resolved.slice(offset, offset + LIST_PAGE_SIZE) };
+  }
+
+  async listRegions(): Promise<RegionListEntry[]> {
+    const index = await this.regionIndex();
+    const regions = await Promise.all(
+      index.map((resource) => this.region(idFromUrl(resource.url))),
+    );
+    return regions.map((region) => ({
+      id: region.id,
+      frenchName: localizedName(region.names),
+    }));
+  }
+
+  async listLocations(regionId: number, page: number): Promise<LocationListPage> {
+    const region = await this.regionOrNotFound(regionId);
+    const regionName = localizedName(region.names);
+    const start = (page - 1) * LOCATION_PAGE_SIZE;
+    const slice = region.locations.slice(start, start + LOCATION_PAGE_SIZE);
+    const entries = await Promise.all(
+      slice.map(async (resource) => {
+        const place = await this.location(idFromUrl(resource.url));
+        return {
+          id: place.id,
+          frenchName: localizedName(place.names),
+          regionName,
+        };
+      }),
+    );
+    return { total: region.locations.length, regionName, entries };
+  }
+
+  async getLocation(regionId: number, locationId: number): Promise<LocationDetail> {
+    const place = await this.locationOrNotFound(locationId);
+    if (!place.region || idFromUrl(place.region.url) !== regionId) {
+      throw new UnknownLocationError(locationId);
+    }
+    const region = await this.regionOrNotFound(regionId);
+    return {
+      id: place.id,
+      frenchName: localizedName(place.names),
+      regionId: region.id,
+      regionName: localizedName(region.names),
+      encounters: await this.encounters(place),
+    };
   }
 
   async listPokemon(page: number): Promise<PokemonListPage> {
@@ -338,6 +422,40 @@ export class CatalogueGateway {
     }
   }
 
+  private async regionIndex(): Promise<NamedResource[]> {
+    const first = await this.load(`region-index:0:${REGION_INDEX_PAGE_SIZE}`, () =>
+      this.upstream.listRegions(0, REGION_INDEX_PAGE_SIZE),
+    );
+    const results = [...first.results];
+    let offset = REGION_INDEX_PAGE_SIZE;
+    while (results.length < first.count) {
+      const page = await this.load(`region-index:${offset}:${REGION_INDEX_PAGE_SIZE}`, () =>
+        this.upstream.listRegions(offset, REGION_INDEX_PAGE_SIZE),
+      );
+      if (page.results.length === 0) {
+        break;
+      }
+      results.push(...page.results);
+      offset += REGION_INDEX_PAGE_SIZE;
+    }
+    return results;
+  }
+
+  private region(id: number): Promise<RegionPayload> {
+    return this.load(`region:${id}`, () => this.upstream.getRegion(id));
+  }
+
+  private async regionOrNotFound(id: number): Promise<RegionPayload> {
+    try {
+      return await this.region(id);
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        throw new UnknownRegionError(id);
+      }
+      throw error;
+    }
+  }
+
   private async itemListEntry(id: number): Promise<ItemListEntry> {
     const item = await this.load<ItemPayload>(`item:${id}`, () => this.upstream.getItem(id));
     const category = await this.described(`item-category`, item.category.url, (categoryId) =>
@@ -349,6 +467,70 @@ export class CatalogueGateway {
       spriteUrl: item.sprites.default,
       category: localizedName(category.names),
     };
+  }
+
+  private location(id: number): Promise<LocationPayload> {
+    return this.load(`location:${id}`, () => this.upstream.getLocation(id));
+  }
+
+  private async locationOrNotFound(id: number): Promise<LocationPayload> {
+    try {
+      return await this.location(id);
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        throw new UnknownLocationError(id);
+      }
+      throw error;
+    }
+  }
+
+  private async encounters(place: LocationPayload): Promise<LocationEncounter[]> {
+    const groups = new Map<string, LocationEncounter>();
+    for (const areaRef of place.areas ?? []) {
+      const areaId = idFromUrl(areaRef.url);
+      const area = await this.load<LocationAreaPayload>(`location-area:${areaId}`, () =>
+        this.upstream.getLocationArea(areaId),
+      );
+      for (const encounter of area.pokemon_encounters) {
+        const pokemonId = idFromUrl(encounter.pokemon.url);
+        const pokemon = await this.load<PokemonPayload>(`pokemon:${pokemonId}`, () =>
+          this.upstream.getPokemon(pokemonId),
+        );
+        const species = await this.species(pokemon);
+        const frenchName = localizedName(species.names);
+        for (const versionDetail of encounter.version_details) {
+          const version = await this.described(`version`, versionDetail.version.url, (versionId) =>
+            this.upstream.getVersion(versionId),
+          );
+          const versionName = localizedName(version.names);
+          for (const detail of versionDetail.encounter_details) {
+            const methodId = idFromUrl(detail.method.url);
+            const method = await this.described(`encounter-method`, detail.method.url, (id) =>
+              this.upstream.getEncounterMethod(id),
+            );
+            const key = `${pokemonId}:${methodId}`;
+            const existing = groups.get(key);
+            if (!existing) {
+              groups.set(key, {
+                pokemonId,
+                frenchName,
+                method: localizedName(method.names),
+                versions: [versionName],
+                minLevel: detail.min_level,
+                maxLevel: detail.max_level,
+              });
+              continue;
+            }
+            if (!existing.versions.includes(versionName)) {
+              existing.versions.push(versionName);
+            }
+            existing.minLevel = Math.min(existing.minLevel, detail.min_level);
+            existing.maxLevel = Math.max(existing.maxLevel, detail.max_level);
+          }
+        }
+      }
+    }
+    return [...groups.values()];
   }
 
   private async listEntry(id: number): Promise<PokemonListEntry> {

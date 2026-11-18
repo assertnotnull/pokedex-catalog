@@ -5,11 +5,13 @@ import {
   type EvolutionChainPayload,
   type GenerationPayload,
   type ItemPayload,
+  type LocationAreaPayload,
   type LocationPayload,
   type PokemonPage,
   type PokemonPayload,
   type PokedexPayload,
   type RegionPayload,
+  type ResourcePage,
   type SpeciesPayload,
   type TypePayload,
   type VersionGroupPayload,
@@ -21,6 +23,26 @@ const ROOT = "https://pokeapi.co/api/v2";
 export class PokeApiClient extends PokeApi {
   listPokemon(offset: number, limit: number): Promise<PokemonPage> {
     return this.get(`${ROOT}/pokemon?limit=${limit}&offset=${offset}`);
+  }
+
+  listRegions(offset: number, limit: number): Promise<ResourcePage> {
+    return this.get(`${ROOT}/region?limit=${limit}&offset=${offset}`);
+  }
+
+  getRegion(id: number): Promise<RegionPayload> {
+    return this.get(`${ROOT}/region/${id}/`);
+  }
+
+  getLocation(id: number): Promise<LocationPayload> {
+    return this.get(`${ROOT}/location/${id}/`);
+  }
+
+  getLocationArea(id: number): Promise<LocationAreaPayload> {
+    return this.get(`${ROOT}/location-area/${id}/`);
+  }
+
+  getEncounterMethod(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/encounter-method/${id}/`);
   }
 
   getPokemon(id: number): Promise<PokemonPayload> {
@@ -85,14 +107,6 @@ export class PokeApiClient extends PokeApi {
 
   getPokedex(id: number): Promise<PokedexPayload> {
     return this.get(`${ROOT}/pokedex/${id}/`);
-  }
-
-  getRegion(id: number): Promise<RegionPayload> {
-    return this.get(`${ROOT}/region/${id}/`);
-  }
-
-  getLocation(id: number): Promise<LocationPayload> {
-    return this.get(`${ROOT}/location/${id}/`);
   }
 
   private async get<T>(url: string): Promise<T> {

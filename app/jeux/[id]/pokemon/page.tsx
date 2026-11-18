@@ -5,6 +5,7 @@ import { GameFrame } from "../../../components/game-frame";
 import { Pagination } from "../../../components/pagination";
 import { Sprite } from "../../../components/sprite";
 import { parsePage } from "../../../parse-page";
+import { parseGameId } from "../../parse-game-id";
 import { getCatalogueGateway } from "@/src/catalogue/composition";
 import {
   LIST_PAGE_SIZE,
@@ -74,13 +75,6 @@ async function GamePokemonList({
       />
     </section>
   );
-}
-
-function parseGameId(raw: string): number | null {
-  if (!/^[1-9]\d*$/.test(raw)) {
-    return null;
-  }
-  return Number(raw);
 }
 
 async function loadList(

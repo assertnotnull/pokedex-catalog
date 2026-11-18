@@ -4,11 +4,12 @@ import { CatalogueUnavailable } from "../../../components/catalogue-unavailable"
 import { GameFrame } from "../../../components/game-frame";
 import { Pagination } from "../../../components/pagination";
 import { parsePage } from "../../../parse-page";
+import { parseGameId } from "../../parse-game-id";
 import { getCatalogueGateway } from "@/src/catalogue/composition";
 import {
   LIST_PAGE_SIZE,
-  type LocationListEntry,
-  type LocationListPage,
+  type GameLocationEntry,
+  type GameLocationPage,
 } from "@/src/catalogue/catalogue-gateway";
 import { CatalogueUnavailableError, UnknownGameError } from "@/src/catalogue/errors";
 
@@ -75,17 +76,10 @@ async function GameLocationList({
   );
 }
 
-function parseGameId(raw: string): number | null {
-  if (!/^[1-9]\d*$/.test(raw)) {
-    return null;
-  }
-  return Number(raw);
-}
-
 async function loadList(
   gameId: number,
   page: number,
-): Promise<LocationListPage | "missing" | "unavailable"> {
+): Promise<GameLocationPage | "missing" | "unavailable"> {
   try {
     return await getCatalogueGateway().listLocationsForGame(gameId, page);
   } catch (error) {
@@ -99,7 +93,7 @@ async function loadList(
   }
 }
 
-function LocationTile({ entry }: { entry: LocationListEntry }) {
+function LocationTile({ entry }: { entry: GameLocationEntry }) {
   return (
     <Link
       href={`/lieux/${entry.regionId}/${entry.id}`}
