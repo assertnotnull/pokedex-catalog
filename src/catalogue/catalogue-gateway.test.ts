@@ -512,6 +512,98 @@ describe("catalogue gateway", () => {
     expect(await gateway.listLocationsForGame(2, 1)).toEqual({ total: 0, entries: [] });
   });
 
+  test("search matches normalized French names indexed by fetched lists", async () => {
+    const { gateway } = openGateway(searchCatalogue());
+
+    expect(await gateway.search("   ")).toEqual({
+      query: "",
+      results: { games: [], pokemon: [], items: [], locations: [] },
+    });
+
+    await gateway.listPokemon(1);
+    await gateway.listItems(1);
+    await gateway.listGames(1);
+    await gateway.listLocations(1, 1);
+
+    expect(await gateway.search("evoli")).toEqual({
+      query: "evoli",
+      results: {
+        games: [],
+        pokemon: [{ id: 133, frenchName: "Évoli", href: "/pokemon/133" }],
+        items: [],
+        locations: [],
+      },
+    });
+    expect((await gateway.search("pikachu")).results.pokemon).toEqual([]);
+    expect((await gateway.search("POKE")).results.items).toEqual([
+      { id: 4, frenchName: "Poké Ball", href: "/objets/4" },
+    ]);
+    expect((await gateway.search("rouge")).results.games).toEqual([
+      { id: 1, frenchName: "Rouge", href: "/jeux/1" },
+    ]);
+    expect((await gateway.search("palette")).results.locations).toEqual([
+      { id: 10, frenchName: "Bourg Palette", href: "/lieux/1/10" },
+    ]);
+  });
+
+  test("warming the search index reads the first list page and ignores a cold upstream", async () => {
+    const { gateway } = openGateway(searchCatalogue());
+
+    expect((await gateway.search("evoli")).results.pokemon).toEqual([]);
+    await gateway.warmSearchIndexes();
+
+    expect((await gateway.search("evoli")).results.pokemon).toEqual([
+      { id: 133, frenchName: "Évoli", href: "/pokemon/133" },
+    ]);
+    expect((await gateway.search("pikachu")).results.pokemon).toEqual([]);
+
+    const cold = openGateway({
+      pages: new Map(),
+      pokemon: new Map(),
+      species: new Map(),
+      types: new Map(),
+      ...emptyRelated(),
+    });
+    await expect(cold.gateway.warmSearchIndexes()).resolves.toBeUndefined();
+    expect(await cold.gateway.search("pikachu")).toEqual({
+      query: "pikachu",
+      results: { games: [], pokemon: [], items: [], locations: [] },
+    });
+  });
+
+  test("search returns at most eight matches per kind", async () => {
+    const results: { name: string; url: string }[] = [];
+    const pokemon = new Map<number, PokemonPayload>();
+    const species = new Map<number, SpeciesPayload>();
+    for (let id = 1; id <= 9; id += 1) {
+      results.push({ name: `saure-${id}`, url: `https://pokeapi.co/api/v2/pokemon/${id}/` });
+      pokemon.set(id, {
+        id,
+        sprites: { front_default: null },
+        types: [],
+        stats: [],
+        abilities: [],
+        moves: [],
+        species: { name: `saure-${id}`, url: `https://pokeapi.co/api/v2/pokemon-species/${id}/` },
+      });
+      species.set(id, { id, names: [{ name: `Saure ${id}`, language: { name: "fr" } }] });
+    }
+    const { gateway } = openGateway({
+      pages: new Map([["0:24", { count: 9, results }]]),
+      pokemon,
+      species,
+      types: new Map(),
+      ...emptyRelated(),
+    });
+
+    await gateway.listPokemon(1);
+    const found = await gateway.search("saure");
+
+    expect(found.results.pokemon).toHaveLength(8);
+    expect(found.results.pokemon[0]).toEqual({ id: 1, frenchName: "Saure 1", href: "/pokemon/1" });
+    expect(found.results.pokemon.some((hit) => hit.id === 9)).toBe(false);
+  });
+
   test("a missing game has no filtered lists", async () => {
     const { gateway } = openGateway(hubCatalogue());
 
@@ -1324,6 +1416,59 @@ function hubCatalogue(): CatalogueFixture {
       game_indices: gameIndices,
     };
   }
+}
+
+function searchCatalogue(): CatalogueFixture {
+  const places = placeCatalogue();
+  const games = gameCatalogue();
+  const items = itemCatalogue();
+  return {
+    ...places,
+    pages: new Map([
+      [
+        "0:24",
+        {
+          count: 1,
+          results: [{ name: "eevee", url: "https://pokeapi.co/api/v2/pokemon/133/" }],
+        },
+      ],
+    ]),
+    pokemon: new Map([
+      ...places.pokemon,
+      [
+        133,
+        {
+          id: 133,
+          sprites: { front_default: null },
+          types: [],
+          stats: [],
+          abilities: [],
+          moves: [],
+          species: { name: "eevee", url: "https://pokeapi.co/api/v2/pokemon-species/133/" },
+        },
+      ],
+    ]),
+    species: new Map([
+      ...places.species,
+      [
+        133,
+        {
+          id: 133,
+          names: [
+            { name: "Eevee", language: { name: "en" } },
+            { name: "Évoli", language: { name: "fr" } },
+          ],
+        },
+      ],
+    ]),
+    itemPages: items.itemPages,
+    items: items.items,
+    itemCategories: items.itemCategories,
+    gamePages: games.gamePages,
+    versions: games.versions,
+    versionGroups: games.versionGroups,
+    generations: games.generations,
+  };
 }
 
 function openGateway(fixture: CatalogueFixture = defaultCatalogue()) {

@@ -31,6 +31,7 @@ import {
 
 export const LIST_PAGE_SIZE = 24;
 export const POKEMON_PAGE_SIZE = LIST_PAGE_SIZE;
+export const SEARCH_RESULT_CAP = 8;
 const FRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type PokemonListEntry = {
@@ -108,6 +109,22 @@ export type ItemListPage = {
   entries: ItemListEntry[];
 };
 
+export type SearchHit = {
+  id: number;
+  frenchName: string;
+  href: string;
+};
+
+export type SearchResults = {
+  query: string;
+  results: {
+    games: SearchHit[];
+    pokemon: SearchHit[];
+    items: SearchHit[];
+    locations: SearchHit[];
+  };
+};
+
 export type PokemonDetail = {
   nationalNumber: number;
   frenchName: string;
@@ -164,7 +181,16 @@ export class CatalogueGateway {
         };
       }),
     );
-    return { total: region.locations.length, entries };
+    const pageResult = { total: region.locations.length, entries };
+    await this.rememberNames(
+      "locations",
+      entries.map((entry) => ({
+        id: entry.id,
+        frenchName: entry.frenchName,
+        href: `/lieux/${entry.regionId}/${entry.id}`,
+      })),
+    );
+    return pageResult;
   }
 
   async getLocation(id: number): Promise<LocationDetail> {
@@ -184,6 +210,7 @@ export class CatalogueGateway {
     const speciesIds = await this.speciesIdsForGame(gameId);
     const slice = pageSlice(speciesIds, page);
     const entries = await Promise.all(slice.map((id) => this.listEntry(id)));
+    await this.rememberNames("pokemon", pokemonHits(entries));
     return { total: speciesIds.length, entries };
   }
 
@@ -195,6 +222,7 @@ export class CatalogueGateway {
     const ids = await this.itemIdsForGame(generationId, groupId);
     const slice = pageSlice(ids, page);
     const entries = await Promise.all(slice.map((id) => this.itemListEntry(id)));
+    await this.rememberNames("items", itemHits(entries));
     return { total: ids.length, entries };
   }
 
@@ -229,7 +257,52 @@ export class CatalogueGateway {
         };
       }),
     );
+    await this.rememberNames(
+      "locations",
+      entries.map((entry) => ({
+        id: entry.id,
+        frenchName: entry.frenchName,
+        href: `/lieux/${entry.regionId}/${entry.id}`,
+      })),
+    );
     return { total: refs.length, entries };
+  }
+
+  async warmSearchIndexes(): Promise<void> {
+    await this.tryList(() => this.listPokemon(1));
+    await this.tryList(() => this.listItems(1));
+    await this.tryList(() => this.listGames(1));
+    const regions = await this.tryList(() => this.listRegions());
+    for (const region of regions ?? []) {
+      await this.tryList(() => this.listLocations(region.id, 1));
+    }
+  }
+
+  async search(query: string): Promise<SearchResults> {
+    const trimmed = query.trim();
+    const empty = {
+      query: trimmed,
+      results: { games: [], pokemon: [], items: [], locations: [] },
+    };
+    if (trimmed === "") {
+      return empty;
+    }
+    const needle = normalizeSearch(trimmed);
+    const [games, pokemon, items, locations] = await Promise.all([
+      this.searchIndex("games"),
+      this.searchIndex("pokemon"),
+      this.searchIndex("items"),
+      this.searchIndex("locations"),
+    ]);
+    return {
+      query: trimmed,
+      results: {
+        games: matchNames(games, needle),
+        pokemon: matchNames(pokemon, needle),
+        items: matchNames(items, needle),
+        locations: matchNames(locations, needle),
+      },
+    };
   }
 
   async listGames(page: number): Promise<GameListPage> {
@@ -239,6 +312,14 @@ export class CatalogueGateway {
     );
     const entries = await Promise.all(
       list.results.map((result) => this.gameEntry(idFromUrl(result.url))),
+    );
+    await this.rememberNames(
+      "games",
+      entries.map((entry) => ({
+        id: entry.id,
+        frenchName: entry.frenchName,
+        href: `/jeux/${entry.id}`,
+      })),
     );
     return { total: list.count, entries };
   }
@@ -256,6 +337,7 @@ export class CatalogueGateway {
     const entries = await Promise.all(
       list.results.map((result) => this.itemListEntry(idFromUrl(result.url))),
     );
+    await this.rememberNames("items", itemHits(entries));
     return { total: list.count, entries };
   }
 
@@ -306,6 +388,7 @@ export class CatalogueGateway {
     const entries = await Promise.all(
       list.results.map((result) => this.listEntry(idFromUrl(result.url))),
     );
+    await this.rememberNames("pokemon", pokemonHits(entries));
     return { total: list.count, entries };
   }
 
@@ -600,6 +683,45 @@ export class CatalogueGateway {
     return this.load(`${kind}:${id}`, () => fetchBody(id));
   }
 
+  private async tryList<T>(load: () => Promise<T>): Promise<T | null> {
+    try {
+      return await load();
+    } catch (error) {
+      if (error instanceof CatalogueUnavailableError) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private async searchIndex(kind: "games" | "pokemon" | "items" | "locations"): Promise<SearchHit[]> {
+    const stored = await this.cache.get(`search-index:${kind}`);
+    return Array.isArray(stored?.body) ? (stored.body as SearchHit[]) : [];
+  }
+
+  private async rememberNames(
+    kind: "games" | "pokemon" | "items" | "locations",
+    entries: SearchHit[],
+  ): Promise<void> {
+    if (entries.length === 0) {
+      return;
+    }
+    const current = await this.searchIndex(kind);
+    const byId = new Map(current.map((entry) => [entry.id, entry]));
+    const order = current.map((entry) => entry.id);
+    for (const entry of entries) {
+      if (!byId.has(entry.id)) {
+        order.push(entry.id);
+      }
+      byId.set(entry.id, entry);
+    }
+    await this.cache.set(
+      `search-index:${kind}`,
+      order.map((id) => byId.get(id)),
+      this.clock.now(),
+    );
+  }
+
   private async load<T>(key: string, fetchBody: () => Promise<T>): Promise<T> {
     const cached = await this.cache.get(key);
     if (cached && this.clock.now() - cached.storedAt < FRESH_FOR_MS) {
@@ -666,6 +788,36 @@ async function mapPool<T, R>(
   const workers = Math.min(limit, items.length);
   await Promise.all(Array.from({ length: workers }, () => worker()));
   return results;
+}
+
+function pokemonHits(entries: PokemonListEntry[]): SearchHit[] {
+  return entries.map((entry) => ({
+    id: entry.nationalNumber,
+    frenchName: entry.frenchName,
+    href: `/pokemon/${entry.nationalNumber}`,
+  }));
+}
+
+function itemHits(entries: ItemListEntry[]): SearchHit[] {
+  return entries.map((entry) => ({
+    id: entry.id,
+    frenchName: entry.frenchName,
+    href: `/objets/${entry.id}`,
+  }));
+}
+
+function matchNames(entries: SearchHit[], needle: string): SearchHit[] {
+  return entries
+    .filter((entry) => normalizeSearch(entry.frenchName).includes(needle))
+    .slice(0, SEARCH_RESULT_CAP);
+}
+
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLocaleLowerCase("fr")
+    .trim();
 }
 
 function pageSlice<T>(items: T[], page: number): T[] {
