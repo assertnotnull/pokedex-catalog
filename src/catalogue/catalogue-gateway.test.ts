@@ -2,6 +2,7 @@ import { Container } from "@needle-di/core";
 import { describe, expect, test } from "bun:test";
 import { CacheStore, InMemoryCacheStore } from "./cache-store";
 import { CatalogueGateway } from "./catalogue-gateway";
+import { searchCatalogue } from "./search-http";
 import { Clock, FixedClock } from "./clock";
 import { CatalogueUnavailableError, UnknownItemError, UnknownPokemonError } from "./errors";
 import {
@@ -307,6 +308,207 @@ describe("catalogue gateway", () => {
     const { gateway } = openGateway(itemCatalogue());
 
     await expect(gateway.getItem(404)).rejects.toBeInstanceOf(UnknownItemError);
+  });
+
+  test("search matches a normalized French substring and groups it under Pokémon", async () => {
+    const { gateway } = openGateway(nameCatalogue());
+    await gateway.listPokemon(1);
+
+    expect(await gateway.search("eche")).toEqual({
+      games: [],
+      pokemon: [{ id: 4, frenchName: "Salamèche" }],
+      items: [],
+      locations: [],
+    });
+  });
+
+  test("an empty search returns no grouped results", async () => {
+    const { gateway } = openGateway(nameCatalogue());
+    await gateway.listPokemon(1);
+
+    expect(await gateway.search("   ")).toEqual({
+      games: [],
+      pokemon: [],
+      items: [],
+      locations: [],
+    });
+  });
+
+  test("search misses a French name until that list is fetched", async () => {
+    const { gateway } = openGateway(nameCatalogue());
+
+    expect(await gateway.search("salameche")).toEqual({
+      games: [],
+      pokemon: [],
+      items: [],
+      locations: [],
+    });
+  });
+
+  test("search returns at most five matches for a kind", async () => {
+    const { gateway } = openGateway(cappedPokemonCatalogue());
+    await gateway.listPokemon(1);
+
+    expect(await gateway.search("sala")).toEqual({
+      games: [],
+      pokemon: [
+        { id: 1, frenchName: "Sala Un" },
+        { id: 2, frenchName: "Sala Deux" },
+        { id: 3, frenchName: "Sala Trois" },
+        { id: 4, frenchName: "Sala Quatre" },
+        { id: 5, frenchName: "Sala Cinq" },
+      ],
+      items: [],
+      locations: [],
+    });
+  });
+
+  test("search matches the English name when a list entry has no French name", async () => {
+    const { gateway } = openGateway(itemCatalogue());
+    await gateway.listItems(1);
+
+    expect((await gateway.search("master")).items).toEqual([
+      { id: 1, frenchName: "Master Ball" },
+    ]);
+  });
+
+  test("search groups an item match separately from Pokémon", async () => {
+    const { gateway } = openGateway(itemCatalogue());
+    await gateway.listItems(1);
+
+    expect(await gateway.search("  poke ")).toEqual({
+      games: [],
+      pokemon: [],
+      items: [{ id: 4, frenchName: "Poké Ball" }],
+      locations: [],
+    });
+  });
+
+  test("fetching the next list page adds those French names to search", async () => {
+    const { gateway } = openGateway(twoPagePokemonCatalogue());
+    await gateway.listPokemon(1);
+    await gateway.listPokemon(2);
+
+    expect(await gateway.search("bulbi")).toEqual({
+      games: [],
+      pokemon: [{ id: 1, frenchName: "Bulbizarre" }],
+      items: [],
+      locations: [],
+    });
+    expect((await gateway.search("sala")).pokemon).toEqual([
+      { id: 4, frenchName: "Salamèche" },
+    ]);
+  });
+
+  test("refetching a list replaces the indexed French name", async () => {
+    const fixture = nameCatalogue();
+    const { gateway, clock } = openGateway(fixture);
+    await gateway.listPokemon(1);
+    clock.advance(SEVEN_DAYS_MS);
+    fixture.species.get(4)!.names = [{ name: "Reptincel", language: { name: "fr" } }];
+
+    await gateway.listPokemon(1);
+
+    expect(await gateway.search("reptincel")).toEqual({
+      games: [],
+      pokemon: [{ id: 4, frenchName: "Reptincel" }],
+      items: [],
+      locations: [],
+    });
+    expect((await gateway.search("salameche")).pokemon).toEqual([]);
+  });
+
+  test("search reads the index stored when the list was fetched", async () => {
+    const cache = new InMemoryCacheStore();
+    const first = openGateway(nameCatalogue(), cache);
+    await first.gateway.listPokemon(1);
+
+    const second = openGateway(nameCatalogue(), cache);
+
+    expect(await second.gateway.search("eche")).toEqual({
+      games: [],
+      pokemon: [{ id: 4, frenchName: "Salamèche" }],
+      items: [],
+      locations: [],
+    });
+    expect(second.upstream.callCount).toBe(0);
+  });
+});
+
+describe("search endpoint", () => {
+  test("an empty query returns grouped empty JSON", async () => {
+    const { gateway } = openGateway(nameCatalogue());
+    await gateway.listPokemon(1);
+
+    const missing = await searchCatalogue(new Request("http://catalogue.test/recherche"), gateway);
+    const blank = await searchCatalogue(
+      new Request("http://catalogue.test/recherche?q=%20%20"),
+      gateway,
+    );
+
+    expect(missing.status).toBe(200);
+    expect(missing.headers.get("content-type")).toContain("application/json");
+    expect(missing.headers.get("cache-control")).toBe("no-store");
+    expect(await missing.json()).toEqual({
+      games: [],
+      pokemon: [],
+      items: [],
+      locations: [],
+    });
+    expect(blank.status).toBe(200);
+    expect(await blank.json()).toEqual({
+      games: [],
+      pokemon: [],
+      items: [],
+      locations: [],
+    });
+  });
+
+  test("a search response links each kind to its detail route", async () => {
+    const fixture = itemCatalogue();
+    fixture.pages.set("0:24", {
+      count: 1,
+      results: [{ name: "pikachu", url: "https://pokeapi.co/api/v2/pokemon/25/" }],
+    });
+    const { gateway } = openGateway(fixture);
+    await gateway.listPokemon(1);
+    await gateway.listItems(1);
+
+    const response = await searchCatalogue(
+      new Request("http://catalogue.test/recherche?q=p"),
+      gateway,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      games: [],
+      pokemon: [{ id: 25, frenchName: "Pikachu", href: "/pokemon/25" }],
+      items: [{ id: 4, frenchName: "Poké Ball", href: "/objets/4" }],
+      locations: [],
+    });
+  });
+
+  test("a search response caps each kind", async () => {
+    const { gateway } = openGateway(cappedPokemonCatalogue());
+    await gateway.listPokemon(1);
+
+    const response = await searchCatalogue(
+      new Request("http://catalogue.test/recherche?q=sala"),
+      gateway,
+    );
+
+    expect(await response.json()).toEqual({
+      games: [],
+      pokemon: [
+        { id: 1, frenchName: "Sala Un", href: "/pokemon/1" },
+        { id: 2, frenchName: "Sala Deux", href: "/pokemon/2" },
+        { id: 3, frenchName: "Sala Trois", href: "/pokemon/3" },
+        { id: 4, frenchName: "Sala Quatre", href: "/pokemon/4" },
+        { id: 5, frenchName: "Sala Cinq", href: "/pokemon/5" },
+      ],
+      items: [],
+      locations: [],
+    });
   });
 });
 
@@ -742,8 +944,57 @@ function itemCatalogue(): CatalogueFixture {
   };
 }
 
-function openGateway(fixture: CatalogueFixture = defaultCatalogue()) {
-  const cache = new InMemoryCacheStore();
+function cappedPokemonCatalogue(): CatalogueFixture {
+  const frenchNames = ["Sala Un", "Sala Deux", "Sala Trois", "Sala Quatre", "Sala Cinq", "Sala Six"];
+  return pokemonPages([frenchNames]);
+}
+
+function twoPagePokemonCatalogue(): CatalogueFixture {
+  return pokemonPages([
+    ["Salamèche"],
+    ["Bulbizarre"],
+  ], [4, 1]);
+}
+
+function pokemonPages(pages: string[][], ids?: number[]): CatalogueFixture {
+  const pokemon = new Map<number, PokemonPayload>();
+  const species = new Map<number, SpeciesPayload>();
+  const pageMap = new Map<string, PokemonPage>();
+  const flatIds: number[] = [];
+  pages.forEach((names, pageIndex) => {
+    const results = names.map((frenchName, nameIndex) => {
+      const id = ids?.[flatIds.length] ?? pageIndex * 24 + nameIndex + 1;
+      flatIds.push(id);
+      pokemon.set(id, {
+        id,
+        sprites: { front_default: null },
+        types: [],
+        stats: [],
+        abilities: [],
+        moves: [],
+        species: { name: `species-${id}`, url: `https://pokeapi.co/api/v2/pokemon-species/${id}/` },
+      });
+      species.set(id, {
+        id,
+        names: [{ name: frenchName, language: { name: "fr" } }],
+      });
+      return { name: `pokemon-${id}`, url: `https://pokeapi.co/api/v2/pokemon/${id}/` };
+    });
+    pageMap.set(`${pageIndex * 24}:24`, { count: pages.flat().length, results });
+  });
+  return {
+    pages: pageMap,
+    pokemon,
+    species,
+    types: new Map(),
+    ...emptyRelated(),
+  };
+}
+
+function openGateway(
+  fixture: CatalogueFixture = defaultCatalogue(),
+  cache = new InMemoryCacheStore(),
+) {
   const clock = new FixedClock(T0);
   const upstream = new FakePokeApi(fixture);
   const container = new Container();

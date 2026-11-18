@@ -54,6 +54,27 @@ export type PokemonDetail = {
   evolutions: { nationalNumber: number; frenchName: string }[];
 };
 
+export const SEARCH_RESULTS_PER_KIND = 5;
+
+export type SearchHit = {
+  id: number;
+  frenchName: string;
+};
+
+export type SearchResults = {
+  games: SearchHit[];
+  pokemon: SearchHit[];
+  items: SearchHit[];
+  locations: SearchHit[];
+};
+
+export const SEARCH_KINDS = ["games", "pokemon", "items", "locations"] as const;
+export type SearchKind = (typeof SEARCH_KINDS)[number];
+
+type SearchIndex = {
+  entries: SearchHit[];
+};
+
 export type ItemDetail = {
   id: number;
   frenchName: string;
@@ -82,6 +103,10 @@ export class CatalogueGateway {
     );
     const entries = await Promise.all(
       list.results.map((result) => this.itemListEntry(idFromUrl(result.url))),
+    );
+    await this.indexListedNames(
+      "items",
+      entries.map((entry) => ({ id: entry.id, frenchName: entry.frenchName })),
     );
     return { total: list.count, entries };
   }
@@ -133,7 +158,22 @@ export class CatalogueGateway {
     const entries = await Promise.all(
       list.results.map((result) => this.listEntry(idFromUrl(result.url))),
     );
+    await this.indexListedNames(
+      "pokemon",
+      entries.map((entry) => ({ id: entry.nationalNumber, frenchName: entry.frenchName })),
+    );
     return { total: list.count, entries };
+  }
+
+  async search(query: string): Promise<SearchResults> {
+    const normalized = normalizeFrenchName(query);
+    const results = emptySearchResults();
+    await Promise.all(
+      SEARCH_KINDS.map(async (kind) => {
+        results[kind] = await this.matchKind(kind, normalized);
+      }),
+    );
+    return results;
   }
 
   async getPokemon(id: number): Promise<PokemonDetail> {
@@ -277,6 +317,39 @@ export class CatalogueGateway {
     return this.load(`${kind}:${id}`, () => fetchBody(id));
   }
 
+  /**
+   * Games and locations list methods record names here when those sections exist.
+   * Each fetched page merges into the cached index for its kind.
+   */
+  private async indexListedNames(kind: SearchKind, entries: SearchHit[]): Promise<void> {
+    const key = searchIndexKey(kind);
+    const cached = await this.cache.get(key);
+    const current = readSearchIndex(cached?.body);
+    const byId = new Map(current.map((entry) => [entry.id, entry]));
+    const order = current.map((entry) => entry.id);
+    for (const entry of entries) {
+      if (!byId.has(entry.id)) {
+        order.push(entry.id);
+      }
+      byId.set(entry.id, entry);
+    }
+    const indexed = order.flatMap((id) => {
+      const entry = byId.get(id);
+      return entry ? [entry] : [];
+    });
+    await this.cache.set(key, { entries: indexed }, this.clock.now());
+  }
+
+  private async matchKind(kind: SearchKind, normalizedQuery: string): Promise<SearchHit[]> {
+    if (!normalizedQuery) {
+      return [];
+    }
+    const cached = await this.cache.get(searchIndexKey(kind));
+    return readSearchIndex(cached?.body)
+      .filter((entry) => normalizeFrenchName(entry.frenchName).includes(normalizedQuery))
+      .slice(0, SEARCH_RESULTS_PER_KIND);
+  }
+
   private async load<T>(key: string, fetchBody: () => Promise<T>): Promise<T> {
     const cached = await this.cache.get(key);
     if (cached && this.clock.now() - cached.storedAt < FRESH_FOR_MS) {
@@ -324,6 +397,31 @@ function localizedProse(
   }
   const cleaned = raw.replace(/[\n\f]+/g, " ").replace(/\s+/g, " ").trim();
   return cleaned.length > 0 ? cleaned : null;
+}
+
+function emptySearchResults(): SearchResults {
+  return { games: [], pokemon: [], items: [], locations: [] };
+}
+
+function searchIndexKey(kind: SearchKind): string {
+  return `search-index:${kind}`;
+}
+
+function readSearchIndex(body: unknown): SearchHit[] {
+  if (!body || typeof body !== "object" || !("entries" in body)) {
+    return [];
+  }
+  const entries = (body as SearchIndex).entries;
+  return Array.isArray(entries) ? entries : [];
+}
+
+function normalizeFrenchName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function localizedName(names: LocalizedName[]): string {
