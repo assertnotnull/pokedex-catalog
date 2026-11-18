@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SiteSearch } from "./site-search";
 import { ThemeToggle } from "./theme-toggle";
 
 const sections = [
@@ -32,7 +33,8 @@ export function SiteHeader() {
             </Link>
           ))}
         </nav>
-        <div className="flex items-center py-2 md:py-0">
+        <div className="flex items-center gap-2 py-2 md:py-0">
+          <SiteSearch />
           <ThemeToggle />
         </div>
       </div>
