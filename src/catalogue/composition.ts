@@ -1,8 +1,9 @@
 import "server-only";
 import { Container } from "@needle-di/core";
-import { CacheStore } from "./cache-store";
+import { CacheStore, InMemoryCacheStore } from "./cache-store";
 import { CatalogueGateway } from "./catalogue-gateway";
 import { Clock, SystemClock } from "./clock";
+import { FixturePokeApi } from "./fixture-poke-api";
 import { PokeApi } from "./poke-api";
 import { PokeApiClient } from "./poke-api-client";
 import { RedisCacheStore } from "./redis-cache-store";
@@ -15,9 +16,16 @@ export function getCatalogueGateway(): CatalogueGateway {
 }
 
 function createGateway(): CatalogueGateway {
+  const fixture = process.env.CATALOGUE_UPSTREAM === "fixture";
   const container = new Container();
-  container.bind({ provide: CacheStore, useValue: cacheStoreFromEnv() });
-  container.bind({ provide: PokeApi, useValue: new PokeApiClient() });
+  container.bind({
+    provide: CacheStore,
+    useValue: fixture ? new InMemoryCacheStore() : cacheStoreFromEnv(),
+  });
+  container.bind({
+    provide: PokeApi,
+    useValue: fixture ? new FixturePokeApi() : new PokeApiClient(),
+  });
   container.bind({ provide: Clock, useValue: new SystemClock() });
   // Next's compiler does not keep the @injectable registration, so the
   // composition root binds the gateway explicitly. Tests still resolve it

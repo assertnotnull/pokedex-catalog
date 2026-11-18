@@ -19,6 +19,7 @@
     "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/turbopack": "^4",
     "@types/bun": "^1.4.4",
     "@types/node": "^20",
