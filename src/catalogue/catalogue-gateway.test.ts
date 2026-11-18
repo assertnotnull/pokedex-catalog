@@ -214,6 +214,21 @@ describe("catalogue gateway", () => {
     });
   });
 
+  test("a Pokémon without an evolution chain still returns its other detail", async () => {
+    const { gateway } = openGateway(dittoCatalogue());
+
+    expect(await gateway.getPokemon(132)).toEqual({
+      nationalNumber: 132,
+      frenchName: "Métamorph",
+      spriteUrl: null,
+      types: ["Normal"],
+      stats: [{ name: "PV", value: 48 }],
+      abilities: [],
+      moves: [],
+      evolutions: [],
+    });
+  });
+
   test("a missing Pokémon is a not-found error", async () => {
     const { gateway } = openGateway();
 
@@ -459,6 +474,63 @@ function detailCatalogue(): CatalogueFixture {
           names: [
             { name: "Quick Attack", language: { name: "en" } },
             { name: "Vive-Attaque", language: { name: "fr" } },
+          ],
+        },
+      ],
+    ]),
+  };
+}
+
+function dittoCatalogue(): CatalogueFixture {
+  return {
+    pages: new Map(),
+    pokemon: new Map([
+      [
+        132,
+        {
+          id: 132,
+          sprites: { front_default: null },
+          types: [{ slot: 1, type: { name: "normal", url: "https://pokeapi.co/api/v2/type/1/" } }],
+          stats: [{ base_stat: 48, stat: { name: "hp", url: "https://pokeapi.co/api/v2/stat/1/" } }],
+          abilities: [],
+          moves: [],
+          species: { name: "ditto", url: "https://pokeapi.co/api/v2/pokemon-species/132/" },
+        },
+      ],
+    ]),
+    species: new Map([
+      [
+        132,
+        {
+          id: 132,
+          names: [
+            { name: "Ditto", language: { name: "en" } },
+            { name: "Métamorph", language: { name: "fr" } },
+          ],
+        },
+      ],
+    ]),
+    types: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Normal", language: { name: "en" } },
+            { name: "Normal", language: { name: "fr" } },
+          ],
+        },
+      ],
+    ]),
+    ...emptyRelated(),
+    stats: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "HP", language: { name: "en" } },
+            { name: "PV", language: { name: "fr" } },
           ],
         },
       ],
