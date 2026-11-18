@@ -4,10 +4,15 @@ import {
   type DescribedPayload,
   type EvolutionChainPayload,
   type ItemPayload,
+  type LocationPayload,
   type PokemonPage,
   type PokemonPayload,
+  type PokedexPayload,
+  type RegionPayload,
   type SpeciesPayload,
   type TypePayload,
+  type VersionGroupPayload,
+  type VersionPayload,
 } from "./poke-api";
 
 const ROOT = "https://pokeapi.co/api/v2";
@@ -59,6 +64,26 @@ export class PokeApiClient extends PokeApi {
 
   getItemAttribute(id: number): Promise<DescribedPayload> {
     return this.get(`${ROOT}/item-attribute/${id}/`);
+  }
+
+  getVersion(id: number): Promise<VersionPayload> {
+    return this.get(`${ROOT}/version/${id}/`);
+  }
+
+  getVersionGroup(id: number): Promise<VersionGroupPayload> {
+    return this.get(`${ROOT}/version-group/${id}/`);
+  }
+
+  getPokedex(id: number): Promise<PokedexPayload> {
+    return this.get(`${ROOT}/pokedex/${id}/`);
+  }
+
+  getRegion(id: number): Promise<RegionPayload> {
+    return this.get(`${ROOT}/region/${id}/`);
+  }
+
+  getLocation(id: number): Promise<LocationPayload> {
+    return this.get(`${ROOT}/location/${id}/`);
   }
 
   private async get<T>(url: string): Promise<T> {

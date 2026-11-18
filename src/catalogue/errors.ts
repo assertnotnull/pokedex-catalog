@@ -18,3 +18,17 @@ export class UnknownItemError extends Error {
     this.name = "UnknownItemError";
   }
 }
+
+export class MissingLocalizedNameError extends Error {
+  constructor() {
+    super("No French or English name");
+    this.name = "MissingLocalizedNameError";
+  }
+}
+
+export class UnknownGameError extends Error {
+  constructor(readonly id: number) {
+    super(`Game ${id} was not found`);
+    this.name = "UnknownGameError";
+  }
+}

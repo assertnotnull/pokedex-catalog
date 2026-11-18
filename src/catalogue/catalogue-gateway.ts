@@ -1,7 +1,13 @@
 import { inject, injectable } from "@needle-di/core";
 import { CacheStore } from "./cache-store";
 import { Clock } from "./clock";
-import { CatalogueUnavailableError, UnknownItemError, UnknownPokemonError } from "./errors";
+import {
+  CatalogueUnavailableError,
+  MissingLocalizedNameError,
+  UnknownGameError,
+  UnknownItemError,
+  UnknownPokemonError,
+} from "./errors";
 import {
   PokeApi,
   UpstreamNotFound,
@@ -10,14 +16,20 @@ import {
   type EvolutionLink,
   type ItemPayload,
   type LocalizedName,
+  type LocationPayload,
   type PokemonPayload,
+  type PokedexPayload,
+  type RegionPayload,
   type SpeciesPayload,
   type TypePayload,
+  type VersionGroupPayload,
+  type VersionPayload,
 } from "./poke-api";
 
 export const LIST_PAGE_SIZE = 24;
 export const POKEMON_PAGE_SIZE = LIST_PAGE_SIZE;
 const FRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
+const UPSTREAM_CONCURRENCY = 16;
 
 export type PokemonListEntry = {
   nationalNumber: number;
@@ -52,6 +64,23 @@ export type PokemonDetail = {
   abilities: { name: string; isHidden: boolean }[];
   moves: { name: string }[];
   evolutions: { nationalNumber: number; frenchName: string }[];
+};
+
+export type LocationListEntry = {
+  id: number;
+  frenchName: string;
+  region: string;
+  regionId: number;
+};
+
+export type LocationListPage = {
+  total: number;
+  entries: LocationListEntry[];
+};
+
+export type GameSummary = {
+  id: number;
+  frenchName: string;
 };
 
 export type ItemDetail = {
@@ -123,6 +152,57 @@ export class CatalogueGateway {
       attributes: attributes.map((attribute) => localizedName(attribute.names)),
       heldBy,
     };
+  }
+
+  async getGame(id: number): Promise<GameSummary> {
+    const version = await this.versionOrNotFound(id);
+    return { id: version.id, frenchName: localizedName(version.names) };
+  }
+
+  async listPokemonForGame(gameId: number, page: number): Promise<PokemonListPage> {
+    const speciesIds = await this.speciesIdsForGame(gameId);
+    return this.pageEntries(speciesIds, page, (id) => this.listEntry(id));
+  }
+
+  async listItemsForGame(gameId: number, page: number): Promise<ItemListPage> {
+    const itemIds = await this.itemIdsForGame(gameId);
+    const offset = (page - 1) * LIST_PAGE_SIZE;
+    const loaded = await Promise.all(
+      itemIds.slice(offset, offset + LIST_PAGE_SIZE).map(async (id) => {
+        try {
+          return await this.itemListEntry(id);
+        } catch (error) {
+          if (error instanceof MissingLocalizedNameError) {
+            return null;
+          }
+          throw error;
+        }
+      }),
+    );
+    return {
+      total: itemIds.length,
+      entries: loaded.filter((entry): entry is ItemListEntry => entry !== null),
+    };
+  }
+
+  async listLocationsForGame(gameId: number, page: number): Promise<LocationListPage> {
+    const places = await this.placesForGame(gameId);
+    const loaded = await mapPool(places, UPSTREAM_CONCURRENCY, async (place) => {
+      const location = await this.locationOrMissing(place.id);
+      const frenchName = location ? localizedNameOrNull(location.names) : null;
+      if (!location || !frenchName) {
+        return null;
+      }
+      return {
+        id: location.id,
+        frenchName,
+        region: place.region,
+        regionId: place.regionId,
+      };
+    });
+    const resolved = loaded.filter((entry): entry is LocationListEntry => entry !== null);
+    const offset = (page - 1) * LIST_PAGE_SIZE;
+    return { total: resolved.length, entries: resolved.slice(offset, offset + LIST_PAGE_SIZE) };
   }
 
   async listPokemon(page: number): Promise<PokemonListPage> {
@@ -238,6 +318,179 @@ export class CatalogueGateway {
     }
   }
 
+  private async pageEntries<T, R>(
+    ids: T[],
+    page: number,
+    loadEntry: (id: T) => Promise<R>,
+  ): Promise<{ total: number; entries: R[] }> {
+    const offset = (page - 1) * LIST_PAGE_SIZE;
+    const entries = await Promise.all(
+      ids.slice(offset, offset + LIST_PAGE_SIZE).map((id) => loadEntry(id)),
+    );
+    return { total: ids.length, entries };
+  }
+
+  private async itemIdsForGame(gameId: number): Promise<number[]> {
+    const group = await this.versionGroupForGame(gameId);
+    const generationUrl = group?.generation?.url;
+    if (!generationUrl) {
+      return [];
+    }
+    const generationId = idFromUrl(generationUrl);
+    return this.load(`items-in-generation:${generationId}`, () =>
+      this.itemIdsInGeneration(generationId),
+    );
+  }
+
+  private async itemIdsInGeneration(generationId: number): Promise<number[]> {
+    const ids = await this.allItemIds();
+    const linked = await mapPool(ids, UPSTREAM_CONCURRENCY, async (id) => {
+      const item = await this.itemOrMissing(id);
+      if (!item || !localizedNameOrNull(item.names)) {
+        return false;
+      }
+      return (
+        item.game_indices?.some((index) => idFromUrl(index.generation.url) === generationId) ??
+        false
+      );
+    });
+    return ids.filter((_, index) => linked[index]);
+  }
+
+  private async itemOrMissing(id: number): Promise<ItemPayload | null> {
+    try {
+      return await this.load(`item:${id}`, () => this.upstream.getItem(id));
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private async allItemIds(): Promise<number[]> {
+    const first = await this.itemPage(0);
+    const ids = first.results.map((result) => idFromUrl(result.url));
+    const offsets: number[] = [];
+    for (let offset = first.results.length; offset < first.count; offset += LIST_PAGE_SIZE) {
+      offsets.push(offset);
+    }
+    const pages = await mapPool(offsets, UPSTREAM_CONCURRENCY, (offset) => this.itemPage(offset));
+    for (const page of pages) {
+      ids.push(...page.results.map((result) => idFromUrl(result.url)));
+    }
+    return ids;
+  }
+
+  private itemPage(offset: number) {
+    return this.load(`item-list:${LIST_PAGE_SIZE}:${offset}`, () =>
+      this.upstream.listItems(offset, LIST_PAGE_SIZE),
+    );
+  }
+
+  private async locationOrMissing(id: number): Promise<LocationPayload | null> {
+    try {
+      return await this.load(`location:${id}`, () => this.upstream.getLocation(id));
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private async placesForGame(
+    gameId: number,
+  ): Promise<{ id: number; region: string; regionId: number }[]> {
+    const group = await this.versionGroupForGame(gameId);
+    if (!group) {
+      return [];
+    }
+    const places: { id: number; region: string; regionId: number }[] = [];
+    const seen = new Set<number>();
+    for (const regionRef of group.regions) {
+      const region = await this.linked<RegionPayload>(`region`, regionRef.url, (id) =>
+        this.upstream.getRegion(id),
+      );
+      if (!region) {
+        continue;
+      }
+      const regionName = localizedNameOrNull(region.names);
+      if (!regionName) {
+        continue;
+      }
+      for (const locationRef of region.locations) {
+        const id = idFromUrl(locationRef.url);
+        if (seen.has(id)) {
+          continue;
+        }
+        seen.add(id);
+        places.push({ id, region: regionName, regionId: region.id });
+      }
+    }
+    return places;
+  }
+
+  private async speciesIdsForGame(gameId: number): Promise<number[]> {
+    const group = await this.versionGroupForGame(gameId);
+    if (!group) {
+      return [];
+    }
+    const ids: number[] = [];
+    const seen = new Set<number>();
+    for (const pokedexRef of group.pokedexes) {
+      const pokedex = await this.linked<PokedexPayload>(`pokedex`, pokedexRef.url, (pokedexId) =>
+        this.upstream.getPokedex(pokedexId),
+      );
+      if (!pokedex) {
+        continue;
+      }
+      for (const entry of pokedex.pokemon_entries) {
+        const speciesId = idFromUrl(entry.pokemon_species.url);
+        if (seen.has(speciesId)) {
+          continue;
+        }
+        seen.add(speciesId);
+        ids.push(speciesId);
+      }
+    }
+    return ids;
+  }
+
+  private async versionGroupForGame(gameId: number): Promise<VersionGroupPayload | null> {
+    const version = await this.versionOrNotFound(gameId);
+    return this.linked(`version-group`, version.version_group.url, (groupId) =>
+      this.upstream.getVersionGroup(groupId),
+    );
+  }
+
+  private async versionOrNotFound(id: number): Promise<VersionPayload> {
+    try {
+      return await this.load(`version:${id}`, () => this.upstream.getVersion(id));
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        throw new UnknownGameError(id);
+      }
+      throw error;
+    }
+  }
+
+  private async linked<T>(
+    kind: string,
+    url: string,
+    fetchBody: (id: number) => Promise<T>,
+  ): Promise<T | null> {
+    const id = idFromUrl(url);
+    try {
+      return await this.load(`${kind}:${id}`, () => fetchBody(id));
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   private async pokemonOrNotFound(id: number): Promise<PokemonPayload> {
     try {
       return await this.load(`pokemon:${id}`, () => this.upstream.getPokemon(id));
@@ -327,19 +580,38 @@ function localizedProse(
 }
 
 function localizedName(names: LocalizedName[]): string {
+  const name = localizedNameOrNull(names);
+  if (name) {
+    return name;
+  }
+  throw new MissingLocalizedNameError();
+}
+
+function localizedNameOrNull(names: LocalizedName[]): string | null {
   const french = names.find((entry) => entry.language.name === "fr");
   if (french) {
     return french.name;
   }
   const english = names.find((entry) => entry.language.name === "en");
-  if (english) {
-    return english.name;
-  }
-  throw new Error("No French or English name");
+  return english?.name ?? null;
 }
 
 function flattenEvolution(link: EvolutionLink): EvolutionLink["species"][] {
   return [link.species, ...link.evolves_to.flatMap((next) => flattenEvolution(next))];
+}
+
+async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function idFromUrl(url: string): number {

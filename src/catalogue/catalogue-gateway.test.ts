@@ -3,17 +3,27 @@ import { describe, expect, test } from "bun:test";
 import { CacheStore, InMemoryCacheStore } from "./cache-store";
 import { CatalogueGateway } from "./catalogue-gateway";
 import { Clock, FixedClock } from "./clock";
-import { CatalogueUnavailableError, UnknownItemError, UnknownPokemonError } from "./errors";
+import {
+  CatalogueUnavailableError,
+  UnknownGameError,
+  UnknownItemError,
+  UnknownPokemonError,
+} from "./errors";
 import {
   PokeApi,
   UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
   type ItemPayload,
+  type LocationPayload,
   type PokemonPage,
   type PokemonPayload,
+  type PokedexPayload,
+  type RegionPayload,
   type SpeciesPayload,
   type TypePayload,
+  type VersionGroupPayload,
+  type VersionPayload,
 } from "./poke-api";
 
 const T0 = 1_700_000_000_000;
@@ -34,9 +44,32 @@ type CatalogueFixture = {
   moves: Map<number, DescribedPayload>;
   stats: Map<number, DescribedPayload>;
   itemPages?: Map<string, PokemonPage>;
+  itemIndex?: { name: string; url: string }[];
   items?: Map<number, ItemPayload>;
   itemCategories?: Map<number, DescribedPayload>;
   itemAttributes?: Map<number, DescribedPayload>;
+  versions?: Map<
+    number,
+    {
+      id: number;
+      name: string;
+      names: { name: string; language: { name: string } }[];
+      version_group: { name: string; url: string };
+    }
+  >;
+  versionGroups?: Map<
+    number,
+    {
+      id: number;
+      name: string;
+      generation?: { name: string; url: string };
+      pokedexes: { name: string; url: string }[];
+      regions: { name: string; url: string }[];
+    }
+  >;
+  pokedexes?: Map<number, PokedexPayload>;
+  regions?: Map<number, RegionPayload>;
+  locations?: Map<number, LocationPayload>;
 };
 
 function emptyRelated(): Pick<
@@ -307,6 +340,349 @@ describe("catalogue gateway", () => {
     const { gateway } = openGateway(itemCatalogue());
 
     await expect(gateway.getItem(404)).rejects.toBeInstanceOf(UnknownItemError);
+  });
+
+  test("a Game hub lists only the Pokémon linked to that version, in French", async () => {
+    const { gateway } = openGateway(redBlueCatalogue());
+
+    const page = await gateway.listPokemonForGame(1, 1);
+
+    expect(page).toEqual({
+      total: 2,
+      entries: [
+        {
+          nationalNumber: 1,
+          frenchName: "Bulbizarre",
+          spriteUrl:
+            "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/1.png",
+          types: ["Plante", "Poison"],
+        },
+        {
+          nationalNumber: 25,
+          frenchName: "Pikachu",
+          spriteUrl: null,
+          types: ["Electric"],
+        },
+      ],
+    });
+  });
+
+  test("a Game hub paginates its Pokémon 24 at a time", async () => {
+    const { gateway } = openGateway(pagedPokedexCatalogue());
+
+    const first = await gateway.listPokemonForGame(1, 1);
+    const second = await gateway.listPokemonForGame(1, 2);
+
+    expect(first.total).toBe(25);
+    expect(first.entries).toHaveLength(24);
+    expect(first.entries[0]).toEqual({
+      nationalNumber: 1,
+      frenchName: "Bulbizarre",
+      spriteUrl: null,
+      types: ["Plante"],
+    });
+    expect(second).toEqual({
+      total: 25,
+      entries: [
+        {
+          nationalNumber: 25,
+          frenchName: "Pikachu",
+          spriteUrl: null,
+          types: ["Electric"],
+        },
+      ],
+    });
+  });
+
+  test("a Game with no Pokédex linkage returns an empty Pokémon list", async () => {
+    const fixture = redBlueCatalogue();
+    fixture.versionGroups?.set(1, {
+      id: 1,
+      name: "red-blue",
+      pokedexes: [],
+      regions: [],
+    });
+    const { gateway } = openGateway(fixture);
+
+    expect(await gateway.listPokemonForGame(1, 1)).toEqual({ total: 0, entries: [] });
+  });
+
+  test("a missing upstream Pokédex is an empty Pokémon list", async () => {
+    const fixture = redBlueCatalogue();
+    fixture.versionGroups?.set(1, {
+      id: 1,
+      name: "red-blue",
+      pokedexes: [{ name: "missing", url: "https://pokeapi.co/api/v2/pokedex/9/" }],
+      regions: [],
+    });
+    const { gateway } = openGateway(fixture);
+
+    expect(await gateway.listPokemonForGame(1, 1)).toEqual({ total: 0, entries: [] });
+  });
+
+  test("Pokémon listed in two Pokédexes appear once, in the first order", async () => {
+    const fixture = redBlueCatalogue();
+    fixture.versionGroups?.set(1, {
+      id: 1,
+      name: "red-blue",
+      pokedexes: [
+        { name: "kanto", url: "https://pokeapi.co/api/v2/pokedex/2/" },
+        { name: "extra", url: "https://pokeapi.co/api/v2/pokedex/3/" },
+      ],
+      regions: [],
+    });
+    fixture.pokedexes?.set(3, {
+      id: 3,
+      pokemon_entries: [
+        {
+          pokemon_species: {
+            name: "pikachu",
+            url: "https://pokeapi.co/api/v2/pokemon-species/25/",
+          },
+        },
+        {
+          pokemon_species: {
+            name: "chikorita",
+            url: "https://pokeapi.co/api/v2/pokemon-species/152/",
+          },
+        },
+      ],
+    });
+    const { gateway } = openGateway(fixture);
+
+    const page = await gateway.listPokemonForGame(1, 1);
+
+    expect(page.total).toBe(3);
+    expect(page.entries.map((entry) => entry.frenchName)).toEqual([
+      "Bulbizarre",
+      "Pikachu",
+      "Germignon",
+    ]);
+  });
+
+  test("an unknown Game is not an empty Pokémon list", async () => {
+    const { gateway } = openGateway(redBlueCatalogue());
+
+    await expect(gateway.listPokemonForGame(404, 1)).rejects.toBeInstanceOf(UnknownGameError);
+  });
+
+  test("a Game hub lists only the items linked to that version's generation", async () => {
+    const { gateway } = openGateway(generationItemsCatalogue());
+
+    expect(await gateway.listItemsForGame(1, 1)).toEqual({
+      total: 1,
+      entries: [
+        {
+          id: 17,
+          frenchName: "Potion",
+          spriteUrl:
+            "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/potion.png",
+          category: "Médicaments",
+        },
+      ],
+    });
+    expect(await gateway.listItemsForGame(2, 1)).toEqual({
+      total: 1,
+      entries: [
+        {
+          id: 80,
+          frenchName: "Pierre Soleil",
+          spriteUrl: null,
+          category: "Evolution Stones",
+        },
+      ],
+    });
+  });
+
+  test("a Game with no generation linkage returns an empty item list", async () => {
+    const fixture = generationItemsCatalogue();
+    fixture.versionGroups?.set(1, {
+      id: 1,
+      name: "red-blue",
+      pokedexes: [],
+      regions: [],
+    });
+    const { gateway } = openGateway(fixture);
+
+    expect(await gateway.listItemsForGame(1, 1)).toEqual({ total: 0, entries: [] });
+  });
+
+  test("a Game hub paginates its items 24 at a time", async () => {
+    const { gateway } = openGateway(pagedItemsCatalogue());
+
+    const first = await gateway.listItemsForGame(1, 1);
+    const second = await gateway.listItemsForGame(1, 2);
+
+    expect(first.total).toBe(25);
+    expect(first.entries).toHaveLength(24);
+    expect(first.entries[0]).toEqual({
+      id: 1,
+      frenchName: "Potion",
+      spriteUrl: null,
+      category: "Médicaments",
+    });
+    expect(second).toEqual({
+      total: 25,
+      entries: [
+        {
+          id: 25,
+          frenchName: "Rappel",
+          spriteUrl: null,
+          category: "Médicaments",
+        },
+      ],
+    });
+  });
+
+  test("an item with no French or English name is left off the Game hub list", async () => {
+    const fixture = generationItemsCatalogue();
+    const unnamed = bareItem(41, "なし", [1]);
+    unnamed.names = [{ name: "なし", language: { name: "ja-hrkt" } }];
+    fixture.items?.set(41, unnamed);
+    fixture.itemIndex?.push({ name: "unnamed", url: "https://pokeapi.co/api/v2/item/41/" });
+    const { gateway } = openGateway(fixture);
+
+    const page = await gateway.listItemsForGame(1, 1);
+
+    expect(page.entries.map((entry) => entry.frenchName)).toEqual(["Potion"]);
+  });
+
+  test("an item missing upstream is left off the Game hub list", async () => {
+    const fixture = generationItemsCatalogue();
+    fixture.itemIndex?.push({ name: "missing", url: "https://pokeapi.co/api/v2/item/404/" });
+    const { gateway } = openGateway(fixture);
+
+    const page = await gateway.listItemsForGame(1, 1);
+
+    expect(page.total).toBe(1);
+    expect(page.entries.map((entry) => entry.frenchName)).toEqual(["Potion"]);
+  });
+
+  test("an unknown Game is not an empty item list", async () => {
+    const { gateway } = openGateway(generationItemsCatalogue());
+
+    await expect(gateway.listItemsForGame(404, 1)).rejects.toBeInstanceOf(UnknownGameError);
+  });
+
+  test("a Game hub lists only the locations linked to that version, in French", async () => {
+    const { gateway } = openGateway(kantoLocationsCatalogue());
+
+    expect(await gateway.listLocationsForGame(1, 1)).toEqual({
+      total: 2,
+      entries: [
+        { id: 86, frenchName: "Bourg Palette", region: "Kanto", regionId: 1 },
+        { id: 67, frenchName: "Celadon City", region: "Kanto", regionId: 1 },
+      ],
+    });
+  });
+
+  test("locations from each region of the version keep that region's French name", async () => {
+    const fixture = kantoLocationsCatalogue();
+    fixture.versionGroups?.get(1)?.regions.push({
+      name: "johto",
+      url: "https://pokeapi.co/api/v2/region/2/",
+    });
+    const { gateway } = openGateway(fixture);
+
+    const page = await gateway.listLocationsForGame(1, 1);
+
+    expect(page.entries).toEqual([
+      { id: 86, frenchName: "Bourg Palette", region: "Kanto", regionId: 1 },
+      { id: 67, frenchName: "Celadon City", region: "Kanto", regionId: 1 },
+      { id: 100, frenchName: "Mauville", region: "Johto", regionId: 2 },
+    ]);
+  });
+
+  test("a Game with no region linkage returns an empty location list", async () => {
+    const fixture = kantoLocationsCatalogue();
+    fixture.versionGroups?.set(1, {
+      id: 1,
+      name: "red-blue",
+      pokedexes: [],
+      regions: [],
+    });
+    const { gateway } = openGateway(fixture);
+
+    expect(await gateway.listLocationsForGame(1, 1)).toEqual({ total: 0, entries: [] });
+  });
+
+  test("a location with no French or English name is left off the Game hub list", async () => {
+    const fixture = kantoLocationsCatalogue();
+    fixture.regions?.get(1)?.locations.push({
+      name: "unnamed",
+      url: "https://pokeapi.co/api/v2/location/50/",
+    });
+    fixture.locations?.set(50, {
+      id: 50,
+      names: [{ name: "無名", language: { name: "ja-hrkt" } }],
+    });
+    const { gateway } = openGateway(fixture);
+
+    const page = await gateway.listLocationsForGame(1, 1);
+
+    expect(page.total).toBe(2);
+    expect(page.entries.map((entry) => entry.frenchName)).toEqual([
+      "Bourg Palette",
+      "Celadon City",
+    ]);
+  });
+
+  test("a location missing upstream is left off the Game hub list", async () => {
+    const fixture = kantoLocationsCatalogue();
+    fixture.regions?.get(1)?.locations.push({
+      name: "missing",
+      url: "https://pokeapi.co/api/v2/location/404/",
+    });
+    const { gateway } = openGateway(fixture);
+
+    expect(await gateway.listLocationsForGame(1, 1)).toEqual({
+      total: 2,
+      entries: [
+        { id: 86, frenchName: "Bourg Palette", region: "Kanto", regionId: 1 },
+        { id: 67, frenchName: "Celadon City", region: "Kanto", regionId: 1 },
+      ],
+    });
+  });
+
+  test("a Game hub paginates its locations 24 at a time", async () => {
+    const { gateway } = openGateway(pagedLocationsCatalogue());
+
+    const first = await gateway.listLocationsForGame(1, 1);
+    const second = await gateway.listLocationsForGame(1, 2);
+
+    expect(first.total).toBe(25);
+    expect(first.entries).toHaveLength(24);
+    expect(first.entries[0]).toEqual({
+      id: 1,
+      frenchName: "Bourg Palette",
+      region: "Kanto",
+      regionId: 1,
+    });
+    expect(second).toEqual({
+      total: 25,
+      entries: [{ id: 25, frenchName: "Plateau Indigo", region: "Kanto", regionId: 1 }],
+    });
+  });
+
+  test("an unknown Game is not an empty location list", async () => {
+    const { gateway } = openGateway(kantoLocationsCatalogue());
+
+    await expect(gateway.listLocationsForGame(404, 1)).rejects.toBeInstanceOf(UnknownGameError);
+  });
+
+  test("a Game summary uses the French name and falls back to English", async () => {
+    const fixture = redBlueCatalogue();
+    fixture.versions?.set(2, {
+      id: 2,
+      name: "blue",
+      names: [{ name: "Blue", language: { name: "en" } }],
+      version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+    });
+    const { gateway } = openGateway(fixture);
+
+    expect(await gateway.getGame(1)).toEqual({ id: 1, frenchName: "Rouge" });
+    expect(await gateway.getGame(2)).toEqual({ id: 2, frenchName: "Blue" });
+    await expect(gateway.getGame(404)).rejects.toBeInstanceOf(UnknownGameError);
   });
 });
 
@@ -742,6 +1118,481 @@ function itemCatalogue(): CatalogueFixture {
   };
 }
 
+function redBlueCatalogue(): CatalogueFixture {
+  return {
+    pages: new Map(),
+    pokemon: new Map([
+      [
+        1,
+        {
+          id: 1,
+          sprites: {
+            front_default:
+              "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/1.png",
+          },
+          types: [
+            { slot: 2, type: { name: "poison", url: "https://pokeapi.co/api/v2/type/4/" } },
+            { slot: 1, type: { name: "grass", url: "https://pokeapi.co/api/v2/type/12/" } },
+          ],
+          stats: [],
+          abilities: [],
+          moves: [],
+          species: { name: "bulbasaur", url: "https://pokeapi.co/api/v2/pokemon-species/1/" },
+        },
+      ],
+      [
+        25,
+        {
+          id: 25,
+          sprites: { front_default: null },
+          types: [
+            { slot: 1, type: { name: "electric", url: "https://pokeapi.co/api/v2/type/13/" } },
+          ],
+          stats: [],
+          abilities: [],
+          moves: [],
+          species: { name: "pikachu", url: "https://pokeapi.co/api/v2/pokemon-species/25/" },
+        },
+      ],
+      [
+        152,
+        {
+          id: 152,
+          sprites: { front_default: null },
+          types: [
+            { slot: 1, type: { name: "grass", url: "https://pokeapi.co/api/v2/type/12/" } },
+          ],
+          stats: [],
+          abilities: [],
+          moves: [],
+          species: { name: "chikorita", url: "https://pokeapi.co/api/v2/pokemon-species/152/" },
+        },
+      ],
+    ]),
+    species: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Bulbasaur", language: { name: "en" } },
+            { name: "Bulbizarre", language: { name: "fr" } },
+          ],
+        },
+      ],
+      [
+        25,
+        {
+          id: 25,
+          names: [{ name: "Pikachu", language: { name: "en" } }],
+        },
+      ],
+      [
+        152,
+        {
+          id: 152,
+          names: [
+            { name: "Chikorita", language: { name: "en" } },
+            { name: "Germignon", language: { name: "fr" } },
+          ],
+        },
+      ],
+    ]),
+    types: new Map([
+      [
+        12,
+        {
+          id: 12,
+          names: [
+            { name: "Grass", language: { name: "en" } },
+            { name: "Plante", language: { name: "fr" } },
+          ],
+        },
+      ],
+      [
+        4,
+        {
+          id: 4,
+          names: [
+            { name: "Poison", language: { name: "en" } },
+            { name: "Poison", language: { name: "fr" } },
+          ],
+        },
+      ],
+      [
+        13,
+        {
+          id: 13,
+          names: [{ name: "Electric", language: { name: "en" } }],
+        },
+      ],
+    ]),
+    ...emptyRelated(),
+    versions: new Map([
+      [
+        1,
+        {
+          id: 1,
+          name: "red",
+          names: [
+            { name: "Red", language: { name: "en" } },
+            { name: "Rouge", language: { name: "fr" } },
+          ],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+    ]),
+    versionGroups: new Map([
+      [
+        1,
+        {
+          id: 1,
+          name: "red-blue",
+          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
+          pokedexes: [{ name: "kanto", url: "https://pokeapi.co/api/v2/pokedex/2/" }],
+          regions: [{ name: "kanto", url: "https://pokeapi.co/api/v2/region/1/" }],
+        },
+      ],
+    ]),
+    pokedexes: new Map([
+      [
+        2,
+        {
+          id: 2,
+          pokemon_entries: [
+            {
+              pokemon_species: {
+                name: "bulbasaur",
+                url: "https://pokeapi.co/api/v2/pokemon-species/1/",
+              },
+            },
+            {
+              pokemon_species: {
+                name: "pikachu",
+                url: "https://pokeapi.co/api/v2/pokemon-species/25/",
+              },
+            },
+          ],
+        },
+      ],
+    ]),
+  };
+}
+
+function pagedPokedexCatalogue(): CatalogueFixture {
+  const pokemon = new Map<number, PokemonPayload>();
+  const species = new Map<number, SpeciesPayload>();
+  const entries: PokedexPayload["pokemon_entries"] = [];
+  for (let id = 1; id <= 25; id += 1) {
+    const french = id === 1 ? "Bulbizarre" : id === 25 ? "Pikachu" : `Monstre ${id}`;
+    const typeId = id === 25 ? 13 : 12;
+    pokemon.set(id, {
+      id,
+      sprites: { front_default: null },
+      types: [
+        {
+          slot: 1,
+          type: { name: "type", url: `https://pokeapi.co/api/v2/type/${typeId}/` },
+        },
+      ],
+      stats: [],
+      abilities: [],
+      moves: [],
+      species: { name: `species-${id}`, url: `https://pokeapi.co/api/v2/pokemon-species/${id}/` },
+    });
+    species.set(id, {
+      id,
+      names:
+        id === 25
+          ? [{ name: "Pikachu", language: { name: "en" } }]
+          : [
+              { name: `Monster ${id}`, language: { name: "en" } },
+              { name: french, language: { name: "fr" } },
+            ],
+    });
+    entries.push({
+      pokemon_species: {
+        name: `species-${id}`,
+        url: `https://pokeapi.co/api/v2/pokemon-species/${id}/`,
+      },
+    });
+  }
+
+  return {
+    pages: new Map(),
+    pokemon,
+    species,
+    types: new Map([
+      [
+        12,
+        {
+          id: 12,
+          names: [
+            { name: "Grass", language: { name: "en" } },
+            { name: "Plante", language: { name: "fr" } },
+          ],
+        },
+      ],
+      [
+        13,
+        { id: 13, names: [{ name: "Electric", language: { name: "en" } }] },
+      ],
+    ]),
+    ...emptyRelated(),
+    versions: new Map([
+      [
+        1,
+        {
+          id: 1,
+          name: "red",
+          names: [{ name: "Rouge", language: { name: "fr" } }],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+    ]),
+    versionGroups: new Map([
+      [
+        1,
+        {
+          id: 1,
+          name: "red-blue",
+          pokedexes: [{ name: "kanto", url: "https://pokeapi.co/api/v2/pokedex/2/" }],
+          regions: [],
+        },
+      ],
+    ]),
+    pokedexes: new Map([[2, { id: 2, pokemon_entries: entries }]]),
+  };
+}
+
+function generationItemsCatalogue(): CatalogueFixture {
+  const items = new Map<number, ItemPayload>();
+  const itemIndex: { name: string; url: string }[] = [];
+  for (let id = 100; id < 124; id += 1) {
+    items.set(id, bareItem(id, `Objet ${id}`, []));
+    itemIndex.push({ name: `item-${id}`, url: `https://pokeapi.co/api/v2/item/${id}/` });
+  }
+  items.set(80, {
+    ...bareItem(80, "Pierre Soleil", [2]),
+    names: [
+      { name: "Sun Stone", language: { name: "en" } },
+      { name: "Pierre Soleil", language: { name: "fr" } },
+    ],
+    category: { name: "evolution-stones", url: "https://pokeapi.co/api/v2/item-category/12/" },
+  });
+  items.set(17, {
+    ...bareItem(17, "Potion", [1]),
+    sprites: {
+      default: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/potion.png",
+    },
+    category: { name: "healing", url: "https://pokeapi.co/api/v2/item-category/30/" },
+  });
+  itemIndex.push(
+    { name: "sun-stone", url: "https://pokeapi.co/api/v2/item/80/" },
+    { name: "potion", url: "https://pokeapi.co/api/v2/item/17/" },
+  );
+
+  return {
+    pages: new Map(),
+    pokemon: new Map(),
+    species: new Map(),
+    types: new Map(),
+    ...emptyRelated(),
+    versions: new Map([
+      [
+        1,
+        {
+          id: 1,
+          name: "red",
+          names: [{ name: "Rouge", language: { name: "fr" } }],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          name: "gold",
+          names: [{ name: "Or", language: { name: "fr" } }],
+          version_group: { name: "gold-silver", url: "https://pokeapi.co/api/v2/version-group/3/" },
+        },
+      ],
+    ]),
+    versionGroups: new Map([
+      [
+        1,
+        {
+          id: 1,
+          name: "red-blue",
+          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
+          pokedexes: [],
+          regions: [],
+        },
+      ],
+      [
+        3,
+        {
+          id: 3,
+          name: "gold-silver",
+          generation: { name: "generation-ii", url: "https://pokeapi.co/api/v2/generation/2/" },
+          pokedexes: [],
+          regions: [],
+        },
+      ],
+    ]),
+    itemIndex,
+    items,
+    itemCategories: new Map([
+      [
+        30,
+        {
+          id: 30,
+          names: [
+            { name: "Medicine", language: { name: "en" } },
+            { name: "Médicaments", language: { name: "fr" } },
+          ],
+        },
+      ],
+      [
+        12,
+        {
+          id: 12,
+          names: [{ name: "Evolution Stones", language: { name: "en" } }],
+        },
+      ],
+      [
+        1,
+        {
+          id: 1,
+          names: [{ name: "Divers", language: { name: "fr" } }],
+        },
+      ],
+    ]),
+  };
+}
+
+function pagedItemsCatalogue(): CatalogueFixture {
+  const items = new Map<number, ItemPayload>();
+  const itemIndex: { name: string; url: string }[] = [];
+  for (let id = 1; id <= 25; id += 1) {
+    const french = id === 1 ? "Potion" : id === 25 ? "Rappel" : `Objet ${id}`;
+    const item = bareItem(id, french, [1]);
+    if (id === 1 || id === 25) {
+      item.category = { name: "healing", url: "https://pokeapi.co/api/v2/item-category/30/" };
+    }
+    items.set(id, item);
+    itemIndex.push({ name: `item-${id}`, url: `https://pokeapi.co/api/v2/item/${id}/` });
+  }
+  const base = generationItemsCatalogue();
+  return { ...base, items, itemIndex };
+}
+
+function kantoLocationsCatalogue(): CatalogueFixture {
+  const base = redBlueCatalogue();
+  base.versionGroups?.set(1, {
+    id: 1,
+    name: "red-blue",
+    generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
+    pokedexes: [{ name: "kanto", url: "https://pokeapi.co/api/v2/pokedex/2/" }],
+    regions: [{ name: "kanto", url: "https://pokeapi.co/api/v2/region/1/" }],
+  });
+  base.regions = new Map([
+    [
+      1,
+      {
+        id: 1,
+        names: [
+          { name: "Kanto", language: { name: "en" } },
+          { name: "Kanto", language: { name: "fr" } },
+        ],
+        locations: [
+          { name: "pallet-town", url: "https://pokeapi.co/api/v2/location/86/" },
+          { name: "celadon-city", url: "https://pokeapi.co/api/v2/location/67/" },
+        ],
+      },
+    ],
+    [
+      2,
+      {
+        id: 2,
+        names: [{ name: "Johto", language: { name: "fr" } }],
+        locations: [{ name: "violet-city", url: "https://pokeapi.co/api/v2/location/100/" }],
+      },
+    ],
+  ]);
+  base.locations = new Map([
+    [
+      86,
+      {
+        id: 86,
+        names: [
+          { name: "Pallet Town", language: { name: "en" } },
+          { name: "Bourg Palette", language: { name: "fr" } },
+        ],
+      },
+    ],
+    [
+      67,
+      {
+        id: 67,
+        names: [{ name: "Celadon City", language: { name: "en" } }],
+      },
+    ],
+    [
+      100,
+      {
+        id: 100,
+        names: [{ name: "Mauville", language: { name: "fr" } }],
+      },
+    ],
+  ]);
+  return base;
+}
+
+function pagedLocationsCatalogue(): CatalogueFixture {
+  const fixture = kantoLocationsCatalogue();
+  const locations = new Map<number, LocationPayload>();
+  const refs: { name: string; url: string }[] = [];
+  for (let id = 1; id <= 25; id += 1) {
+    const french = id === 1 ? "Bourg Palette" : id === 25 ? "Plateau Indigo" : `Lieu ${id}`;
+    locations.set(id, {
+      id,
+      names: [{ name: french, language: { name: "fr" } }],
+    });
+    refs.push({ name: `location-${id}`, url: `https://pokeapi.co/api/v2/location/${id}/` });
+  }
+  fixture.locations = locations;
+  fixture.regions?.set(1, {
+    id: 1,
+    names: [
+      { name: "Kanto", language: { name: "en" } },
+      { name: "Kanto", language: { name: "fr" } },
+    ],
+    locations: refs,
+  });
+  return fixture;
+}
+
+function bareItem(id: number, frenchName: string, generationIds: number[]): ItemPayload {
+  return {
+    id,
+    prices: [],
+    sprites: { default: null },
+    category: { name: "misc", url: "https://pokeapi.co/api/v2/item-category/1/" },
+    attributes: [],
+    effect_entries: [],
+    flavor_text_entries: [],
+    names: [{ name: frenchName, language: { name: "fr" } }],
+    held_by_pokemon: [],
+    game_indices: generationIds.map((generationId) => ({
+      generation: {
+        name: `generation-${generationId}`,
+        url: `https://pokeapi.co/api/v2/generation/${generationId}/`,
+      },
+    })),
+  };
+}
+
 function openGateway(fixture: CatalogueFixture = defaultCatalogue()) {
   const cache = new InMemoryCacheStore();
   const clock = new FixedClock(T0);
@@ -806,6 +1657,13 @@ class FakePokeApi extends PokeApi {
 
   listItems(offset: number, limit: number): Promise<PokemonPage> {
     this.itemListCalls.push({ offset, limit });
+    if (this.fixture.itemIndex) {
+      const index = this.fixture.itemIndex;
+      return this.read(
+        () => ({ count: index.length, results: index.slice(offset, offset + limit) }),
+        "item index",
+      );
+    }
     return this.read(
       () => this.fixture.itemPages?.get(`${offset}:${limit}`),
       `item page ${offset}:${limit}`,
@@ -822,6 +1680,26 @@ class FakePokeApi extends PokeApi {
 
   getItemAttribute(id: number): Promise<DescribedPayload> {
     return this.read(() => this.fixture.itemAttributes?.get(id), `item attribute ${id}`);
+  }
+
+  getVersion(id: number): Promise<VersionPayload> {
+    return this.read(() => this.fixture.versions?.get(id), `version ${id}`, true);
+  }
+
+  getVersionGroup(id: number): Promise<VersionGroupPayload> {
+    return this.read(() => this.fixture.versionGroups?.get(id), `version group ${id}`, true);
+  }
+
+  getPokedex(id: number): Promise<PokedexPayload> {
+    return this.read(() => this.fixture.pokedexes?.get(id), `pokedex ${id}`, true);
+  }
+
+  getRegion(id: number): Promise<RegionPayload> {
+    return this.read(() => this.fixture.regions?.get(id), `region ${id}`, true);
+  }
+
+  getLocation(id: number): Promise<LocationPayload> {
+    return this.read(() => this.fixture.locations?.get(id), `location ${id}`, true);
   }
 
   private read<T>(load: () => T | undefined, label: string, missingIsNotFound = false): Promise<T> {

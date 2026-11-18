@@ -66,6 +66,38 @@ export type ItemPayload = {
   flavor_text_entries: { text: string; language: { name: string } }[];
   names: LocalizedName[];
   held_by_pokemon: { pokemon: NamedResource }[];
+  game_indices?: { generation: NamedResource }[];
+};
+
+export type VersionPayload = {
+  id: number;
+  name: string;
+  names: LocalizedName[];
+  version_group: NamedResource;
+};
+
+export type VersionGroupPayload = {
+  id: number;
+  name: string;
+  generation?: NamedResource;
+  pokedexes: NamedResource[];
+  regions: NamedResource[];
+};
+
+export type PokedexPayload = {
+  id: number;
+  pokemon_entries: { pokemon_species: NamedResource }[];
+};
+
+export type RegionPayload = {
+  id: number;
+  names: LocalizedName[];
+  locations: NamedResource[];
+};
+
+export type LocationPayload = {
+  id: number;
+  names: LocalizedName[];
 };
 
 export abstract class PokeApi {
@@ -81,4 +113,9 @@ export abstract class PokeApi {
   abstract getItem(id: number): Promise<ItemPayload>;
   abstract getItemCategory(id: number): Promise<DescribedPayload>;
   abstract getItemAttribute(id: number): Promise<DescribedPayload>;
+  abstract getVersion(id: number): Promise<VersionPayload>;
+  abstract getVersionGroup(id: number): Promise<VersionGroupPayload>;
+  abstract getPokedex(id: number): Promise<PokedexPayload>;
+  abstract getRegion(id: number): Promise<RegionPayload>;
+  abstract getLocation(id: number): Promise<LocationPayload>;
 }
