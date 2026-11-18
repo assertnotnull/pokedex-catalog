@@ -1,20 +1,22 @@
 import { inject, injectable } from "@needle-di/core";
 import { CacheStore } from "./cache-store";
 import { Clock } from "./clock";
-import { CatalogueUnavailableError, UnknownPokemonError } from "./errors";
+import { CatalogueUnavailableError, UnknownItemError, UnknownPokemonError } from "./errors";
 import {
   PokeApi,
   UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
   type EvolutionLink,
+  type ItemPayload,
   type LocalizedName,
   type PokemonPayload,
   type SpeciesPayload,
   type TypePayload,
 } from "./poke-api";
 
-export const POKEMON_PAGE_SIZE = 24;
+export const LIST_PAGE_SIZE = 24;
+export const POKEMON_PAGE_SIZE = LIST_PAGE_SIZE;
 const FRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type PokemonListEntry = {
@@ -29,6 +31,18 @@ export type PokemonListPage = {
   entries: PokemonListEntry[];
 };
 
+export type ItemListEntry = {
+  id: number;
+  frenchName: string;
+  spriteUrl: string | null;
+  category: string;
+};
+
+export type ItemListPage = {
+  total: number;
+  entries: ItemListEntry[];
+};
+
 export type PokemonDetail = {
   nationalNumber: number;
   frenchName: string;
@@ -40,6 +54,19 @@ export type PokemonDetail = {
   evolutions: { nationalNumber: number; frenchName: string }[];
 };
 
+export type ItemDetail = {
+  id: number;
+  frenchName: string;
+  spriteUrl: string | null;
+  category: string;
+  purchasePrice: number | null;
+  sellPrice: number | null;
+  effect: string | null;
+  flavorText: string | null;
+  attributes: string[];
+  heldBy: { nationalNumber: number; frenchName: string }[];
+};
+
 @injectable()
 export class CatalogueGateway {
   constructor(
@@ -47,6 +74,56 @@ export class CatalogueGateway {
     private readonly upstream = inject(PokeApi),
     private readonly clock = inject(Clock),
   ) {}
+
+  async listItems(page: number): Promise<ItemListPage> {
+    const offset = (page - 1) * LIST_PAGE_SIZE;
+    const list = await this.load(`item-list:${LIST_PAGE_SIZE}:${offset}`, () =>
+      this.upstream.listItems(offset, LIST_PAGE_SIZE),
+    );
+    const entries = await Promise.all(
+      list.results.map((result) => this.itemListEntry(idFromUrl(result.url))),
+    );
+    return { total: list.count, entries };
+  }
+
+  async getItem(id: number): Promise<ItemDetail> {
+    const item = await this.itemOrNotFound(id);
+    const [category, attributes, heldBy] = await Promise.all([
+      this.described(`item-category`, item.category.url, (categoryId) =>
+        this.upstream.getItemCategory(categoryId),
+      ),
+      Promise.all(
+        item.attributes.map((attribute) =>
+          this.described(`item-attribute`, attribute.url, (attributeId) =>
+            this.upstream.getItemAttribute(attributeId),
+          ),
+        ),
+      ),
+      Promise.all(
+        item.held_by_pokemon.map(async (held) => {
+          const nationalNumber = idFromUrl(held.pokemon.url);
+          const pokemon = await this.load<PokemonPayload>(`pokemon:${nationalNumber}`, () =>
+            this.upstream.getPokemon(nationalNumber),
+          );
+          const species = await this.species(pokemon);
+          return { nationalNumber, frenchName: localizedName(species.names) };
+        }),
+      ),
+    ]);
+
+    return {
+      id: item.id,
+      frenchName: localizedName(item.names),
+      spriteUrl: item.sprites.default,
+      category: localizedName(category.names),
+      purchasePrice: firstPrice(item.prices, "purchase_price"),
+      sellPrice: firstPrice(item.prices, "sell_price"),
+      effect: localizedProse(item.effect_entries, "short_effect"),
+      flavorText: localizedProse(item.flavor_text_entries, "text"),
+      attributes: attributes.map((attribute) => localizedName(attribute.names)),
+      heldBy,
+    };
+  }
 
   async listPokemon(page: number): Promise<PokemonListPage> {
     const offset = (page - 1) * POKEMON_PAGE_SIZE;
@@ -124,6 +201,19 @@ export class CatalogueGateway {
     };
   }
 
+  private async itemListEntry(id: number): Promise<ItemListEntry> {
+    const item = await this.load<ItemPayload>(`item:${id}`, () => this.upstream.getItem(id));
+    const category = await this.described(`item-category`, item.category.url, (categoryId) =>
+      this.upstream.getItemCategory(categoryId),
+    );
+    return {
+      id: item.id,
+      frenchName: localizedName(item.names),
+      spriteUrl: item.sprites.default,
+      category: localizedName(category.names),
+    };
+  }
+
   private async listEntry(id: number): Promise<PokemonListEntry> {
     const pokemon = await this.load<PokemonPayload>(`pokemon:${id}`, () =>
       this.upstream.getPokemon(id),
@@ -135,6 +225,17 @@ export class CatalogueGateway {
       spriteUrl: pokemon.sprites.front_default,
       types: await this.frenchTypes(pokemon),
     };
+  }
+
+  private async itemOrNotFound(id: number): Promise<ItemPayload> {
+    try {
+      return await this.load(`item:${id}`, () => this.upstream.getItem(id));
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        throw new UnknownItemError(id);
+      }
+      throw error;
+    }
   }
 
   private async pokemonOrNotFound(id: number): Promise<PokemonPayload> {
@@ -196,6 +297,33 @@ export class CatalogueGateway {
       throw new CatalogueUnavailableError();
     }
   }
+}
+
+function firstPrice(
+  prices: { purchase_price: number | null; sell_price: number | null }[] | undefined,
+  field: "purchase_price" | "sell_price",
+): number | null {
+  for (const price of prices ?? []) {
+    const value = price[field];
+    if (typeof value === "number") {
+      return value;
+    }
+  }
+  return null;
+}
+
+function localizedProse(
+  entries: { short_effect?: string; text?: string; language: { name: string } }[],
+  field: "short_effect" | "text",
+): string | null {
+  const french = entries.find((entry) => entry.language.name === "fr");
+  const english = entries.find((entry) => entry.language.name === "en");
+  const raw = (french ?? english)?.[field];
+  if (!raw) {
+    return null;
+  }
+  const cleaned = raw.replace(/[\n\f]+/g, " ").replace(/\s+/g, " ").trim();
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 function localizedName(names: LocalizedName[]): string {

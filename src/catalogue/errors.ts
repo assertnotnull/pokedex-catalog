@@ -11,3 +11,10 @@ export class UnknownPokemonError extends Error {
     this.name = "UnknownPokemonError";
   }
 }
+
+export class UnknownItemError extends Error {
+  constructor(readonly id: number) {
+    super(`Item ${id} was not found`);
+    this.name = "UnknownItemError";
+  }
+}
