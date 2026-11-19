@@ -6,6 +6,7 @@ import { searchCatalogue } from "./search-http";
 import { Clock, FixedClock } from "./clock";
 import {
   CatalogueUnavailableError,
+  UnknownGameError,
   UnknownItemError,
   UnknownLocationError,
   UnknownPokemonError,
@@ -27,6 +28,9 @@ import {
   type ResourcePage,
   type SpeciesPayload,
   type TypePayload,
+  type VersionGroupPayload,
+  type VersionPage,
+  type VersionPayload,
 } from "./poke-api";
 
 const T0 = 1_700_000_000_000;
@@ -46,15 +50,18 @@ type CatalogueFixture = {
   abilities: Map<number, DescribedPayload>;
   moves: Map<number, DescribedPayload>;
   stats: Map<number, DescribedPayload>;
-  itemPages?: Map<string, PokemonPage>;
-  items?: Map<number, ItemPayload>;
-  itemCategories?: Map<number, DescribedPayload>;
-  itemAttributes?: Map<number, DescribedPayload>;
   regionPages?: Map<string, ResourcePage>;
   regions?: Map<number, RegionPayload>;
   locations?: Map<number, LocationPayload>;
   locationAreas?: Map<number, LocationAreaPayload>;
-  versions?: Map<number, DescribedPayload>;
+  itemPages?: Map<string, PokemonPage>;
+  items?: Map<number, ItemPayload>;
+  itemCategories?: Map<number, DescribedPayload>;
+  itemAttributes?: Map<number, DescribedPayload>;
+  versionPages?: Map<string, VersionPage>;
+  versions?: Map<number, VersionPayload>;
+  versionGroups?: Map<number, VersionGroupPayload>;
+  generations?: Map<number, DescribedPayload>;
   encounterMethods?: Map<number, DescribedPayload>;
 };
 
@@ -259,75 +266,6 @@ describe("catalogue gateway", () => {
     await expect(gateway.getPokemon(404)).rejects.toBeInstanceOf(UnknownPokemonError);
   });
 
-  test("an item list entry keeps only the v1 fields and resolves French names", async () => {
-    const { gateway } = openGateway(itemCatalogue());
-
-    const page = await gateway.listItems(1);
-
-    expect(page.total).toBe(2);
-    expect(page.entries).toEqual([
-      {
-        id: 4,
-        frenchName: "Poké Ball",
-        spriteUrl:
-          "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png",
-        category: "Poké Balls",
-      },
-      {
-        id: 1,
-        frenchName: "Master Ball",
-        spriteUrl: null,
-        category: "Standard Balls",
-      },
-    ]);
-  });
-
-  test("each item list page requests the next 24 entries", async () => {
-    const { gateway, upstream } = openGateway(itemCatalogue());
-
-    await gateway.listItems(1);
-    await gateway.listItems(2);
-
-    expect(upstream.itemListCalls).toEqual([
-      { offset: 0, limit: 24 },
-      { offset: 24, limit: 24 },
-    ]);
-  });
-
-  test("an item detail shows the French reference and the Pokémon that hold it", async () => {
-    const { gateway } = openGateway(itemCatalogue());
-
-    expect(await gateway.getItem(4)).toEqual({
-      id: 4,
-      frenchName: "Poké Ball",
-      spriteUrl:
-        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png",
-      category: "Poké Balls",
-      purchasePrice: 200,
-      sellPrice: 100,
-      effect: "Permet de capturer un Pokémon sauvage.",
-      flavorText: "Un objet pour capturer les Pokémon sauvages.",
-      attributes: ["Tenue possible"],
-      heldBy: [{ nationalNumber: 25, frenchName: "Pikachu" }],
-    });
-  });
-
-  test("an item without prices has no purchase or sell price", async () => {
-    const { gateway } = openGateway(itemCatalogue());
-
-    const item = await gateway.getItem(1);
-
-    expect(item.purchasePrice).toBeNull();
-    expect(item.sellPrice).toBeNull();
-    expect(item.frenchName).toBe("Master Ball");
-  });
-
-  test("a missing item is a not-found error", async () => {
-    const { gateway } = openGateway(itemCatalogue());
-
-    await expect(gateway.getItem(404)).rejects.toBeInstanceOf(UnknownItemError);
-  });
-
   test("the region index uses French names and falls back to English", async () => {
     const { gateway } = openGateway(worldCatalogue());
 
@@ -437,6 +375,136 @@ describe("catalogue gateway", () => {
     const { gateway } = openGateway(worldCatalogue());
 
     await expect(gateway.getLocation(5, 67)).rejects.toBeInstanceOf(UnknownLocationError);
+  });
+
+  test("a game list shows French names, an English fallback, the generation label, and no artwork when none is published", async () => {
+    const { gateway } = openGateway(gameCatalogue());
+
+    expect(await gateway.listGames(1)).toEqual({
+      total: 26,
+      entries: [
+        {
+          id: 1,
+          frenchName: "Rouge",
+          artworkUrl: null,
+          label: "1re Génération",
+        },
+        {
+          id: 4,
+          frenchName: "Gold",
+          artworkUrl: null,
+          label: "Generation II",
+        },
+      ],
+    });
+  });
+
+  test("a missing game is a not-found error", async () => {
+    const { gateway } = openGateway();
+
+    await expect(gateway.getGame(404)).rejects.toBeInstanceOf(UnknownGameError);
+  });
+
+  test("a game detail shows the French name, the English fallback, and the generation label", async () => {
+    const { gateway } = openGateway(gameCatalogue());
+
+    expect(await gateway.getGame(1)).toEqual({
+      id: 1,
+      frenchName: "Rouge",
+      artworkUrl: null,
+      label: "1re Génération",
+    });
+    expect(await gateway.getGame(4)).toEqual({
+      id: 4,
+      frenchName: "Gold",
+      artworkUrl: null,
+      label: "Generation II",
+    });
+  });
+
+  test("each game list page returns the next 24 games", async () => {
+    const { gateway } = openGateway(gameCatalogue());
+
+    expect(await gateway.listGames(2)).toEqual({
+      total: 26,
+      entries: [
+        {
+          id: 5,
+          frenchName: "Argent",
+          artworkUrl: null,
+          label: "Generation II",
+        },
+      ],
+    });
+  });
+
+  test("an item list entry keeps only the v1 fields and resolves French names", async () => {
+    const { gateway } = openGateway(itemCatalogue());
+
+    const page = await gateway.listItems(1);
+
+    expect(page.total).toBe(2);
+    expect(page.entries).toEqual([
+      {
+        id: 4,
+        frenchName: "Poké Ball",
+        spriteUrl:
+          "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png",
+        category: "Poké Balls",
+      },
+      {
+        id: 1,
+        frenchName: "Master Ball",
+        spriteUrl: null,
+        category: "Standard Balls",
+      },
+    ]);
+  });
+
+  test("each item list page requests the next 24 entries", async () => {
+    const { gateway, upstream } = openGateway(itemCatalogue());
+
+    await gateway.listItems(1);
+    await gateway.listItems(2);
+
+    expect(upstream.itemListCalls).toEqual([
+      { offset: 0, limit: 24 },
+      { offset: 24, limit: 24 },
+    ]);
+  });
+
+  test("an item detail shows the French reference and the Pokémon that hold it", async () => {
+    const { gateway } = openGateway(itemCatalogue());
+
+    expect(await gateway.getItem(4)).toEqual({
+      id: 4,
+      frenchName: "Poké Ball",
+      spriteUrl:
+        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png",
+      category: "Poké Balls",
+      purchasePrice: 200,
+      sellPrice: 100,
+      effect: "Permet de capturer un Pokémon sauvage.",
+      flavorText: "Un objet pour capturer les Pokémon sauvages.",
+      attributes: ["Tenue possible"],
+      heldBy: [{ nationalNumber: 25, frenchName: "Pikachu" }],
+    });
+  });
+
+  test("an item without prices has no purchase or sell price", async () => {
+    const { gateway } = openGateway(itemCatalogue());
+
+    const item = await gateway.getItem(1);
+
+    expect(item.purchasePrice).toBeNull();
+    expect(item.sellPrice).toBeNull();
+    expect(item.frenchName).toBe("Master Ball");
+  });
+
+  test("a missing item is a not-found error", async () => {
+    const { gateway } = openGateway(itemCatalogue());
+
+    await expect(gateway.getItem(404)).rejects.toBeInstanceOf(UnknownItemError);
   });
 
   test("search matches a normalized French substring and groups it under Pokémon", async () => {
@@ -750,8 +818,22 @@ function worldCatalogue(): CatalogueFixture {
     locations: kanto.byId,
     locationAreas: celadonAreas(),
     versions: new Map([
-      [1, { id: 1, names: french("Rouge", "Red") }],
-      [2, { id: 2, names: [{ name: "Blue", language: { name: "en" } }] }],
+      [
+        1,
+        {
+          id: 1,
+          names: french("Rouge", "Red"),
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          names: [{ name: "Blue", language: { name: "en" } }],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
     ]),
     encounterMethods: new Map([
       [1, { id: 1, names: french("Marche", "Walk") }],
@@ -864,6 +946,102 @@ function french(fr: string, en: string): { name: string; language: { name: strin
     { name: en, language: { name: "en" } },
     { name: fr, language: { name: "fr" } },
   ];
+}
+
+function gameCatalogue(): CatalogueFixture {
+  return {
+    pages: new Map(),
+    pokemon: new Map(),
+    species: new Map(),
+    types: new Map(),
+    ...emptyRelated(),
+    versionPages: new Map([
+      [
+        "0:24",
+        {
+          count: 26,
+          results: [
+            { name: "red", url: "https://pokeapi.co/api/v2/version/1/" },
+            { name: "gold", url: "https://pokeapi.co/api/v2/version/4/" },
+          ],
+        },
+      ],
+      [
+        "24:24",
+        {
+          count: 26,
+          results: [{ name: "silver", url: "https://pokeapi.co/api/v2/version/5/" }],
+        },
+      ],
+    ]),
+    versions: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Red", language: { name: "en" } },
+            { name: "Rouge", language: { name: "fr" } },
+          ],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        4,
+        {
+          id: 4,
+          names: [{ name: "Gold", language: { name: "en" } }],
+          version_group: { name: "gold-silver", url: "https://pokeapi.co/api/v2/version-group/3/" },
+        },
+      ],
+      [
+        5,
+        {
+          id: 5,
+          names: [
+            { name: "Silver", language: { name: "en" } },
+            { name: "Argent", language: { name: "fr" } },
+          ],
+          version_group: { name: "gold-silver", url: "https://pokeapi.co/api/v2/version-group/3/" },
+        },
+      ],
+    ]),
+    versionGroups: new Map([
+      [
+        1,
+        {
+          id: 1,
+          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
+        },
+      ],
+      [
+        3,
+        {
+          id: 3,
+          generation: { name: "generation-ii", url: "https://pokeapi.co/api/v2/generation/2/" },
+        },
+      ],
+    ]),
+    generations: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Generation I", language: { name: "en" } },
+            { name: "1re Génération", language: { name: "fr" } },
+          ],
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          names: [{ name: "Generation II", language: { name: "en" } }],
+        },
+      ],
+    ]),
+  };
 }
 
 function nameCatalogue(): CatalogueFixture {
@@ -1409,26 +1587,6 @@ class FakePokeApi extends PokeApi {
     return this.read(() => this.fixture.stats.get(id), `stat ${id}`);
   }
 
-  listItems(offset: number, limit: number): Promise<PokemonPage> {
-    this.itemListCalls.push({ offset, limit });
-    return this.read(
-      () => this.fixture.itemPages?.get(`${offset}:${limit}`),
-      `item page ${offset}:${limit}`,
-    );
-  }
-
-  getItem(id: number): Promise<ItemPayload> {
-    return this.read(() => this.fixture.items?.get(id), `item ${id}`, true);
-  }
-
-  getItemCategory(id: number): Promise<DescribedPayload> {
-    return this.read(() => this.fixture.itemCategories?.get(id), `item category ${id}`);
-  }
-
-  getItemAttribute(id: number): Promise<DescribedPayload> {
-    return this.read(() => this.fixture.itemAttributes?.get(id), `item attribute ${id}`);
-  }
-
   listRegions(offset: number, limit: number): Promise<ResourcePage> {
     return this.read(
       () => this.fixture.regionPages?.get(`${offset}:${limit}`),
@@ -1448,12 +1606,47 @@ class FakePokeApi extends PokeApi {
     return this.read(() => this.fixture.locationAreas?.get(id), `location area ${id}`);
   }
 
-  getVersion(id: number): Promise<DescribedPayload> {
-    return this.read(() => this.fixture.versions?.get(id), `version ${id}`);
+  getVersion(id: number): Promise<VersionPayload> {
+    return this.read(() => this.fixture.versions?.get(id), `version ${id}`, true);
   }
 
   getEncounterMethod(id: number): Promise<DescribedPayload> {
     return this.read(() => this.fixture.encounterMethods?.get(id), `encounter method ${id}`);
+  }
+
+  listVersions(offset: number, limit: number): Promise<VersionPage> {
+    return this.read(
+      () => this.fixture.versionPages?.get(`${offset}:${limit}`),
+      `version page ${offset}:${limit}`,
+    );
+  }
+
+  getVersionGroup(id: number): Promise<VersionGroupPayload> {
+    return this.read(() => this.fixture.versionGroups?.get(id), `version group ${id}`);
+  }
+
+  getGeneration(id: number): Promise<DescribedPayload> {
+    return this.read(() => this.fixture.generations?.get(id), `generation ${id}`);
+  }
+
+  listItems(offset: number, limit: number): Promise<PokemonPage> {
+    this.itemListCalls.push({ offset, limit });
+    return this.read(
+      () => this.fixture.itemPages?.get(`${offset}:${limit}`),
+      `item page ${offset}:${limit}`,
+    );
+  }
+
+  getItem(id: number): Promise<ItemPayload> {
+    return this.read(() => this.fixture.items?.get(id), `item ${id}`, true);
+  }
+
+  getItemCategory(id: number): Promise<DescribedPayload> {
+    return this.read(() => this.fixture.itemCategories?.get(id), `item category ${id}`);
+  }
+
+  getItemAttribute(id: number): Promise<DescribedPayload> {
+    return this.read(() => this.fixture.itemAttributes?.get(id), `item attribute ${id}`);
   }
 
   private read<T>(load: () => T | undefined, label: string, missingIsNotFound = false): Promise<T> {
