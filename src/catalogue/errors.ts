@@ -25,3 +25,10 @@ export class UnknownLocationError extends Error {
     this.name = "UnknownLocationError";
   }
 }
+
+export class UnknownGameError extends Error {
+  constructor(readonly id: number) {
+    super(`Game ${id} was not found`);
+    this.name = "UnknownGameError";
+  }
+}

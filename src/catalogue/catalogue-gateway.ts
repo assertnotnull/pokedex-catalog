@@ -3,6 +3,7 @@ import { CacheStore } from "./cache-store";
 import { Clock } from "./clock";
 import {
   CatalogueUnavailableError,
+  UnknownGameError,
   UnknownLocationError,
   UnknownPokemonError,
   UnknownRegionError,
@@ -21,9 +22,12 @@ import {
   type RegionPayload,
   type SpeciesPayload,
   type TypePayload,
+  type VersionGroupPayload,
+  type VersionPayload,
 } from "./poke-api";
 
 export const POKEMON_PAGE_SIZE = 24;
+export const GAME_PAGE_SIZE = 24;
 export const LOCATION_PAGE_SIZE = 24;
 const REGION_INDEX_PAGE_SIZE = 24;
 const FRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
@@ -73,6 +77,20 @@ export type PokemonListPage = {
   total: number;
   entries: PokemonListEntry[];
 };
+
+export type GameListEntry = {
+  id: number;
+  frenchName: string;
+  artworkUrl: string | null;
+  label: string;
+};
+
+export type GameListPage = {
+  total: number;
+  entries: GameListEntry[];
+};
+
+export type GameDetail = GameListEntry;
 
 export type PokemonDetail = {
   nationalNumber: number;
@@ -148,6 +166,28 @@ export class CatalogueGateway {
     return { total: list.count, entries };
   }
 
+  async listGames(page: number): Promise<GameListPage> {
+    const offset = (page - 1) * GAME_PAGE_SIZE;
+    const list = await this.load(`version-list:${GAME_PAGE_SIZE}:${offset}`, () =>
+      this.upstream.listVersions(offset, GAME_PAGE_SIZE),
+    );
+    const entries = await Promise.all(
+      list.results.map((result) => this.gameEntry(idFromUrl(result.url))),
+    );
+    return { total: list.count, entries };
+  }
+
+  async getGame(id: number): Promise<GameDetail> {
+    try {
+      return await this.gameEntry(id);
+    } catch (error) {
+      if (error instanceof UpstreamNotFound) {
+        throw new UnknownGameError(id);
+      }
+      throw error;
+    }
+  }
+
   async getPokemon(id: number): Promise<PokemonDetail> {
     const pokemon = await this.pokemonOrNotFound(id);
     const species = await this.species(pokemon);
@@ -210,6 +250,24 @@ export class CatalogueGateway {
       abilities,
       moves,
       evolutions,
+    };
+  }
+
+  private async gameEntry(id: number): Promise<GameListEntry> {
+    const version = await this.load<VersionPayload>(`version:${id}`, () => this.upstream.getVersion(id));
+    const groupId = idFromUrl(version.version_group.url);
+    const group = await this.load<VersionGroupPayload>(`version-group:${groupId}`, () =>
+      this.upstream.getVersionGroup(groupId),
+    );
+    const generationId = idFromUrl(group.generation.url);
+    const generation = await this.load<DescribedPayload>(`generation:${generationId}`, () =>
+      this.upstream.getGeneration(generationId),
+    );
+    return {
+      id: version.id,
+      frenchName: localizedName(version.names),
+      artworkUrl: null,
+      label: localizedName(generation.names),
     };
   }
 

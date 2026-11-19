@@ -11,6 +11,9 @@ import {
   type ResourcePage,
   type SpeciesPayload,
   type TypePayload,
+  type VersionGroupPayload,
+  type VersionPage,
+  type VersionPayload,
 } from "./poke-api";
 
 const ROOT = "https://pokeapi.co/api/v2";
@@ -34,10 +37,6 @@ export class PokeApiClient extends PokeApi {
 
   getLocationArea(id: number): Promise<LocationAreaPayload> {
     return this.get(`${ROOT}/location-area/${id}/`);
-  }
-
-  getVersion(id: number): Promise<DescribedPayload> {
-    return this.get(`${ROOT}/version/${id}/`);
   }
 
   getEncounterMethod(id: number): Promise<DescribedPayload> {
@@ -70,6 +69,22 @@ export class PokeApiClient extends PokeApi {
 
   getStat(id: number): Promise<DescribedPayload> {
     return this.get(`${ROOT}/stat/${id}/`);
+  }
+
+  listVersions(offset: number, limit: number): Promise<VersionPage> {
+    return this.get(`${ROOT}/version?limit=${limit}&offset=${offset}`);
+  }
+
+  getVersion(id: number): Promise<VersionPayload> {
+    return this.get(`${ROOT}/version/${id}/`);
+  }
+
+  getVersionGroup(id: number): Promise<VersionGroupPayload> {
+    return this.get(`${ROOT}/version-group/${id}/`);
+  }
+
+  getGeneration(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/generation/${id}/`);
   }
 
   private async get<T>(url: string): Promise<T> {
