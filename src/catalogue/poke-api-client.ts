@@ -3,8 +3,12 @@ import {
   UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
+  type LocationAreaPayload,
+  type LocationPayload,
   type PokemonPage,
   type PokemonPayload,
+  type RegionPayload,
+  type ResourcePage,
   type SpeciesPayload,
   type TypePayload,
   type VersionGroupPayload,
@@ -17,6 +21,26 @@ const ROOT = "https://pokeapi.co/api/v2";
 export class PokeApiClient extends PokeApi {
   listPokemon(offset: number, limit: number): Promise<PokemonPage> {
     return this.get(`${ROOT}/pokemon?limit=${limit}&offset=${offset}`);
+  }
+
+  listRegions(offset: number, limit: number): Promise<ResourcePage> {
+    return this.get(`${ROOT}/region?limit=${limit}&offset=${offset}`);
+  }
+
+  getRegion(id: number): Promise<RegionPayload> {
+    return this.get(`${ROOT}/region/${id}/`);
+  }
+
+  getLocation(id: number): Promise<LocationPayload> {
+    return this.get(`${ROOT}/location/${id}/`);
+  }
+
+  getLocationArea(id: number): Promise<LocationAreaPayload> {
+    return this.get(`${ROOT}/location-area/${id}/`);
+  }
+
+  getEncounterMethod(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/encounter-method/${id}/`);
   }
 
   getPokemon(id: number): Promise<PokemonPayload> {

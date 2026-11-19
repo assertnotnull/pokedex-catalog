@@ -15,6 +15,37 @@ export type PokemonPage = {
   results: NamedResource[];
 };
 
+export type ResourcePage = PokemonPage;
+
+export type RegionPayload = {
+  id: number;
+  names: LocalizedName[];
+  locations: NamedResource[];
+};
+
+export type LocationPayload = {
+  id: number;
+  names: LocalizedName[];
+  region: NamedResource | null;
+  areas: NamedResource[];
+};
+
+export type LocationAreaPayload = {
+  id: number;
+  names: LocalizedName[];
+  pokemon_encounters: {
+    pokemon: NamedResource;
+    version_details: {
+      version: NamedResource;
+      encounter_details: {
+        min_level: number;
+        max_level: number;
+        method: NamedResource;
+      }[];
+    }[];
+  }[];
+};
+
 export type LocalizedName = {
   name: string;
   language: { name: string };
@@ -74,6 +105,11 @@ export type VersionGroupPayload = {
 
 export abstract class PokeApi {
   abstract listPokemon(offset: number, limit: number): Promise<PokemonPage>;
+  abstract listRegions(offset: number, limit: number): Promise<ResourcePage>;
+  abstract getRegion(id: number): Promise<RegionPayload>;
+  abstract getLocation(id: number): Promise<LocationPayload>;
+  abstract getLocationArea(id: number): Promise<LocationAreaPayload>;
+  abstract getEncounterMethod(id: number): Promise<DescribedPayload>;
   abstract getPokemon(id: number): Promise<PokemonPayload>;
   abstract getSpecies(id: number): Promise<SpeciesPayload>;
   abstract getType(id: number): Promise<TypePayload>;

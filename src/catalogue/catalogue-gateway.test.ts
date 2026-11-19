@@ -3,14 +3,26 @@ import { describe, expect, test } from "bun:test";
 import { CacheStore, InMemoryCacheStore } from "./cache-store";
 import { CatalogueGateway } from "./catalogue-gateway";
 import { Clock, FixedClock } from "./clock";
-import { CatalogueUnavailableError, UnknownGameError, UnknownPokemonError } from "./errors";
+import {
+  CatalogueUnavailableError,
+  UnknownGameError,
+  UnknownLocationError,
+  UnknownPokemonError,
+  UnknownRegionError,
+} from "./errors";
 import {
   PokeApi,
   UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
+  type LocalizedName,
+  type LocationAreaPayload,
+  type LocationPayload,
+  type NamedResource,
   type PokemonPage,
   type PokemonPayload,
+  type RegionPayload,
+  type ResourcePage,
   type SpeciesPayload,
   type TypePayload,
   type VersionGroupPayload,
@@ -35,10 +47,15 @@ type CatalogueFixture = {
   abilities: Map<number, DescribedPayload>;
   moves: Map<number, DescribedPayload>;
   stats: Map<number, DescribedPayload>;
+  regionPages?: Map<string, ResourcePage>;
+  regions?: Map<number, RegionPayload>;
+  locations?: Map<number, LocationPayload>;
+  locationAreas?: Map<number, LocationAreaPayload>;
   versionPages?: Map<string, VersionPage>;
   versions?: Map<number, VersionPayload>;
   versionGroups?: Map<number, VersionGroupPayload>;
   generations?: Map<number, DescribedPayload>;
+  encounterMethods?: Map<number, DescribedPayload>;
 };
 
 function emptyRelated(): Pick<
@@ -242,6 +259,117 @@ describe("catalogue gateway", () => {
     await expect(gateway.getPokemon(404)).rejects.toBeInstanceOf(UnknownPokemonError);
   });
 
+  test("the region index uses French names and falls back to English", async () => {
+    const { gateway } = openGateway(worldCatalogue());
+
+    expect(await gateway.listRegions()).toEqual([
+      { id: 1, frenchName: "Kanto" },
+      { id: 5, frenchName: "Unys" },
+      { id: 11, frenchName: "Orre" },
+    ]);
+  });
+
+  test("the region index keeps regions past the first page", async () => {
+    const { gateway } = openGateway(longRegionIndex());
+
+    const regions = await gateway.listRegions();
+
+    expect(regions).toHaveLength(25);
+    expect(regions[0]).toEqual({ id: 1, frenchName: "Kanto" });
+    expect(regions[24]).toEqual({ id: 25, frenchName: "Faraway" });
+  });
+
+  test("locations in a region are paged by 24 with the French name and region", async () => {
+    const { gateway } = openGateway(worldCatalogue());
+
+    const first = await gateway.listLocations(1, 1);
+
+    expect(first.total).toBe(25);
+    expect(first.regionName).toBe("Kanto");
+    expect(first.entries).toHaveLength(24);
+    expect(first.entries[0]).toEqual({
+      id: 67,
+      frenchName: "Céladopole",
+      regionName: "Kanto",
+    });
+    expect(first.entries[1]).toEqual({
+      id: 68,
+      frenchName: "Argenta",
+      regionName: "Kanto",
+    });
+
+    expect((await gateway.listLocations(1, 2)).entries).toEqual([
+      { id: 200, frenchName: "Victory Road", regionName: "Kanto" },
+    ]);
+  });
+
+  test("an unknown region is a not-found error", async () => {
+    const { gateway } = openGateway(worldCatalogue());
+
+    await expect(gateway.listLocations(404, 1)).rejects.toBeInstanceOf(UnknownRegionError);
+  });
+
+  test("a location detail shows French encounters from every area", async () => {
+    const { gateway } = openGateway(worldCatalogue());
+
+    expect(await gateway.getLocation(1, 67)).toEqual({
+      id: 67,
+      frenchName: "Céladopole",
+      regionId: 1,
+      regionName: "Kanto",
+      encounters: [
+        {
+          pokemonId: 4,
+          frenchName: "Salamèche",
+          method: "Marche",
+          versions: ["Rouge", "Blue"],
+          minLevel: 2,
+          maxLevel: 6,
+        },
+        {
+          pokemonId: 999,
+          frenchName: "Missingno",
+          method: "Surf",
+          versions: ["Rouge"],
+          minLevel: 10,
+          maxLevel: 10,
+        },
+        {
+          pokemonId: 25,
+          frenchName: "Pikachu",
+          method: "Marche",
+          versions: ["Rouge"],
+          minLevel: 7,
+          maxLevel: 7,
+        },
+      ],
+    });
+  });
+
+  test("a location without encounters keeps its name and region", async () => {
+    const { gateway } = openGateway(worldCatalogue());
+
+    expect(await gateway.getLocation(11, 1096)).toEqual({
+      id: 1096,
+      frenchName: "Phenac City",
+      regionId: 11,
+      regionName: "Orre",
+      encounters: [],
+    });
+  });
+
+  test("a missing location is a not-found error", async () => {
+    const { gateway } = openGateway(worldCatalogue());
+
+    await expect(gateway.getLocation(1, 404)).rejects.toBeInstanceOf(UnknownLocationError);
+  });
+
+  test("a location outside the requested region is a not-found error", async () => {
+    const { gateway } = openGateway(worldCatalogue());
+
+    await expect(gateway.getLocation(5, 67)).rejects.toBeInstanceOf(UnknownLocationError);
+  });
+
   test("a game list shows French names, an English fallback, the generation label, and no artwork when none is published", async () => {
     const { gateway } = openGateway(gameCatalogue());
 
@@ -303,6 +431,312 @@ describe("catalogue gateway", () => {
     });
   });
 });
+
+function longRegionIndex(): CatalogueFixture {
+  const regions = Array.from({ length: 25 }, (_, index) => {
+    const id = index + 1;
+    const names =
+      id === 1
+        ? french("Kanto", "Kanto")
+        : id === 25
+          ? [{ name: "Faraway", language: { name: "en" } }]
+          : french(`Région ${id}`, `Region ${id}`);
+    return { id, names, locations: [] };
+  });
+  const resource = (id: number) => ({
+    name: "region",
+    url: `https://pokeapi.co/api/v2/region/${id}/`,
+  });
+  return {
+    ...defaultCatalogue(),
+    regionPages: new Map([
+      ["0:24", { count: 25, results: regions.slice(0, 24).map((region) => resource(region.id)) }],
+      ["24:24", { count: 25, results: [resource(25)] }],
+    ]),
+    regions: new Map(regions.map((region) => [region.id, region])),
+  };
+}
+
+function worldCatalogue(): CatalogueFixture {
+  const kanto = kantoPlaces();
+  const celadon = kanto.byId.get(67);
+  if (!celadon) {
+    throw new Error("Céladopole is missing from the fixture");
+  }
+  celadon.areas = [
+    { name: "celadon-city-area", url: "https://pokeapi.co/api/v2/location-area/283/" },
+    { name: "celadon-mansion", url: "https://pokeapi.co/api/v2/location-area/284/" },
+  ];
+  const phenac: LocationPayload = {
+    id: 1096,
+    names: [{ name: "Phenac City", language: { name: "en" } }],
+    region: { name: "orre", url: "https://pokeapi.co/api/v2/region/11/" },
+    areas: [],
+  };
+  kanto.byId.set(phenac.id, phenac);
+  const catalogue = defaultCatalogue();
+  catalogue.pokemon.set(4, barePokemon(4, "charmander"));
+  catalogue.pokemon.set(999, barePokemon(999, "missingno"));
+  catalogue.species.set(4, { id: 4, names: french("Salamèche", "Charmander") });
+  catalogue.species.set(999, {
+    id: 999,
+    names: [{ name: "Missingno", language: { name: "en" } }],
+  });
+  return {
+    ...catalogue,
+    regionPages: new Map([
+      [
+        "0:24",
+        {
+          count: 3,
+          results: [
+            { name: "kanto", url: "https://pokeapi.co/api/v2/region/1/" },
+            { name: "unova", url: "https://pokeapi.co/api/v2/region/5/" },
+            { name: "orre", url: "https://pokeapi.co/api/v2/region/11/" },
+          ],
+        },
+      ],
+    ]),
+    regions: new Map([
+      [1, { id: 1, names: french("Kanto", "Kanto"), locations: kanto.locations }],
+      [5, { id: 5, names: french("Unys", "Unova"), locations: [] }],
+      [
+        11,
+        {
+          id: 11,
+          names: [{ name: "Orre", language: { name: "en" } }],
+          locations: [{ name: "phenac-city", url: "https://pokeapi.co/api/v2/location/1096/" }],
+        },
+      ],
+    ]),
+    locations: kanto.byId,
+    locationAreas: celadonAreas(),
+    versions: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: french("Rouge", "Red"),
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          names: [{ name: "Blue", language: { name: "en" } }],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+    ]),
+    encounterMethods: new Map([
+      [1, { id: 1, names: french("Marche", "Walk") }],
+      [5, { id: 5, names: [{ name: "Surf", language: { name: "en" } }] }],
+    ]),
+  };
+}
+
+function barePokemon(id: number, name: string): PokemonPayload {
+  return {
+    id,
+    sprites: { front_default: null },
+    types: [],
+    stats: [],
+    abilities: [],
+    moves: [],
+    species: { name, url: `https://pokeapi.co/api/v2/pokemon-species/${id}/` },
+  };
+}
+
+function celadonAreas(): Map<number, LocationAreaPayload> {
+  const walk = { name: "walk", url: "https://pokeapi.co/api/v2/encounter-method/1/" };
+  const surf = { name: "surf", url: "https://pokeapi.co/api/v2/encounter-method/5/" };
+  const red = { name: "red", url: "https://pokeapi.co/api/v2/version/1/" };
+  const blue = { name: "blue", url: "https://pokeapi.co/api/v2/version/2/" };
+  return new Map([
+    [
+      283,
+      {
+        id: 283,
+        names: [],
+        pokemon_encounters: [
+          {
+            pokemon: { name: "charmander", url: "https://pokeapi.co/api/v2/pokemon/4/" },
+            version_details: [
+              {
+                version: red,
+                encounter_details: [{ min_level: 2, max_level: 4, method: walk }],
+              },
+              {
+                version: blue,
+                encounter_details: [{ min_level: 5, max_level: 6, method: walk }],
+              },
+            ],
+          },
+          {
+            pokemon: { name: "missingno", url: "https://pokeapi.co/api/v2/pokemon/999/" },
+            version_details: [
+              {
+                version: red,
+                encounter_details: [{ min_level: 10, max_level: 10, method: surf }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    [
+      284,
+      {
+        id: 284,
+        names: [],
+        pokemon_encounters: [
+          {
+            pokemon: { name: "pikachu", url: "https://pokeapi.co/api/v2/pokemon/25/" },
+            version_details: [
+              {
+                version: red,
+                encounter_details: [{ min_level: 7, max_level: 7, method: walk }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  ]);
+}
+
+function kantoPlaces(): { locations: NamedResource[]; byId: Map<number, LocationPayload> } {
+  const places: { id: number; names: LocalizedName[] }[] = [
+    { id: 67, names: french("Céladopole", "Celadon City") },
+    { id: 68, names: french("Argenta", "Pewter City") },
+    ...Array.from({ length: 22 }, (_, index) => {
+      const id = 101 + index;
+      return { id, names: french(`Lieu ${id}`, `Place ${id}`) };
+    }),
+    { id: 200, names: [{ name: "Victory Road", language: { name: "en" } }] },
+  ];
+  return {
+    locations: places.map((place) => ({
+      name: "place",
+      url: `https://pokeapi.co/api/v2/location/${place.id}/`,
+    })),
+    byId: new Map(
+      places.map((place) => [
+        place.id,
+        {
+          id: place.id,
+          names: place.names,
+          region: { name: "kanto", url: "https://pokeapi.co/api/v2/region/1/" },
+          areas: [],
+        },
+      ]),
+    ),
+  };
+}
+
+function french(fr: string, en: string): { name: string; language: { name: string } }[] {
+  return [
+    { name: en, language: { name: "en" } },
+    { name: fr, language: { name: "fr" } },
+  ];
+}
+
+function gameCatalogue(): CatalogueFixture {
+  return {
+    pages: new Map(),
+    pokemon: new Map(),
+    species: new Map(),
+    types: new Map(),
+    ...emptyRelated(),
+    versionPages: new Map([
+      [
+        "0:24",
+        {
+          count: 26,
+          results: [
+            { name: "red", url: "https://pokeapi.co/api/v2/version/1/" },
+            { name: "gold", url: "https://pokeapi.co/api/v2/version/4/" },
+          ],
+        },
+      ],
+      [
+        "24:24",
+        {
+          count: 26,
+          results: [{ name: "silver", url: "https://pokeapi.co/api/v2/version/5/" }],
+        },
+      ],
+    ]),
+    versions: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Red", language: { name: "en" } },
+            { name: "Rouge", language: { name: "fr" } },
+          ],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        4,
+        {
+          id: 4,
+          names: [{ name: "Gold", language: { name: "en" } }],
+          version_group: { name: "gold-silver", url: "https://pokeapi.co/api/v2/version-group/3/" },
+        },
+      ],
+      [
+        5,
+        {
+          id: 5,
+          names: [
+            { name: "Silver", language: { name: "en" } },
+            { name: "Argent", language: { name: "fr" } },
+          ],
+          version_group: { name: "gold-silver", url: "https://pokeapi.co/api/v2/version-group/3/" },
+        },
+      ],
+    ]),
+    versionGroups: new Map([
+      [
+        1,
+        {
+          id: 1,
+          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
+        },
+      ],
+      [
+        3,
+        {
+          id: 3,
+          generation: { name: "generation-ii", url: "https://pokeapi.co/api/v2/generation/2/" },
+        },
+      ],
+    ]),
+    generations: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Generation I", language: { name: "en" } },
+            { name: "1re Génération", language: { name: "fr" } },
+          ],
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          names: [{ name: "Generation II", language: { name: "en" } }],
+        },
+      ],
+    ]),
+  };
+}
 
 function nameCatalogue(): CatalogueFixture {
   return {
@@ -549,102 +983,6 @@ function detailCatalogue(): CatalogueFixture {
   };
 }
 
-function gameCatalogue(): CatalogueFixture {
-  return {
-    pages: new Map(),
-    pokemon: new Map(),
-    species: new Map(),
-    types: new Map(),
-    ...emptyRelated(),
-    versionPages: new Map([
-      [
-        "0:24",
-        {
-          count: 26,
-          results: [
-            { name: "red", url: "https://pokeapi.co/api/v2/version/1/" },
-            { name: "gold", url: "https://pokeapi.co/api/v2/version/4/" },
-          ],
-        },
-      ],
-      [
-        "24:24",
-        {
-          count: 26,
-          results: [{ name: "silver", url: "https://pokeapi.co/api/v2/version/5/" }],
-        },
-      ],
-    ]),
-    versions: new Map([
-      [
-        1,
-        {
-          id: 1,
-          names: [
-            { name: "Red", language: { name: "en" } },
-            { name: "Rouge", language: { name: "fr" } },
-          ],
-          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
-        },
-      ],
-      [
-        4,
-        {
-          id: 4,
-          names: [{ name: "Gold", language: { name: "en" } }],
-          version_group: { name: "gold-silver", url: "https://pokeapi.co/api/v2/version-group/3/" },
-        },
-      ],
-      [
-        5,
-        {
-          id: 5,
-          names: [
-            { name: "Silver", language: { name: "en" } },
-            { name: "Argent", language: { name: "fr" } },
-          ],
-          version_group: { name: "gold-silver", url: "https://pokeapi.co/api/v2/version-group/3/" },
-        },
-      ],
-    ]),
-    versionGroups: new Map([
-      [
-        1,
-        {
-          id: 1,
-          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
-        },
-      ],
-      [
-        3,
-        {
-          id: 3,
-          generation: { name: "generation-ii", url: "https://pokeapi.co/api/v2/generation/2/" },
-        },
-      ],
-    ]),
-    generations: new Map([
-      [
-        1,
-        {
-          id: 1,
-          names: [
-            { name: "Generation I", language: { name: "en" } },
-            { name: "1re Génération", language: { name: "fr" } },
-          ],
-        },
-      ],
-      [
-        2,
-        {
-          id: 2,
-          names: [{ name: "Generation II", language: { name: "en" } }],
-        },
-      ],
-    ]),
-  };
-}
-
 function dittoCatalogue(): CatalogueFixture {
   return {
     pages: new Map(),
@@ -763,15 +1101,38 @@ class FakePokeApi extends PokeApi {
     return this.read(() => this.fixture.stats.get(id), `stat ${id}`);
   }
 
+  listRegions(offset: number, limit: number): Promise<ResourcePage> {
+    return this.read(
+      () => this.fixture.regionPages?.get(`${offset}:${limit}`),
+      `regions ${offset}:${limit}`,
+    );
+  }
+
+  getRegion(id: number): Promise<RegionPayload> {
+    return this.read(() => this.fixture.regions?.get(id), `region ${id}`, true);
+  }
+
+  getLocation(id: number): Promise<LocationPayload> {
+    return this.read(() => this.fixture.locations?.get(id), `location ${id}`, true);
+  }
+
+  getLocationArea(id: number): Promise<LocationAreaPayload> {
+    return this.read(() => this.fixture.locationAreas?.get(id), `location area ${id}`);
+  }
+
+  getVersion(id: number): Promise<VersionPayload> {
+    return this.read(() => this.fixture.versions?.get(id), `version ${id}`, true);
+  }
+
+  getEncounterMethod(id: number): Promise<DescribedPayload> {
+    return this.read(() => this.fixture.encounterMethods?.get(id), `encounter method ${id}`);
+  }
+
   listVersions(offset: number, limit: number): Promise<VersionPage> {
     return this.read(
       () => this.fixture.versionPages?.get(`${offset}:${limit}`),
       `version page ${offset}:${limit}`,
     );
-  }
-
-  getVersion(id: number): Promise<VersionPayload> {
-    return this.read(() => this.fixture.versions?.get(id), `version ${id}`, true);
   }
 
   getVersionGroup(id: number): Promise<VersionGroupPayload> {

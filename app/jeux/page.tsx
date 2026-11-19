@@ -53,7 +53,7 @@ async function GameList({
           ))}
         </ul>
       )}
-      <Pagination page={page} total={list.total} pageSize={GAME_PAGE_SIZE} basePath="/jeux" />
+      <Pagination page={page} total={list.total} pageSize={GAME_PAGE_SIZE} path="/jeux" />
     </div>
   );
 }
