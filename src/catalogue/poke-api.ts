@@ -10,12 +10,12 @@ export type NamedResource = {
   url: string;
 };
 
-export type PokemonPage = {
+export type ResourcePage = {
   count: number;
   results: NamedResource[];
 };
 
-export type ResourcePage = PokemonPage;
+export type PokemonPage = ResourcePage;
 
 export type RegionPayload = {
   id: number;
@@ -87,6 +87,34 @@ export type EvolutionChainPayload = {
   chain: EvolutionLink;
 };
 
+export type ItemPricePayload = {
+  purchase_price: number | null;
+  sell_price: number | null;
+  version_group?: NamedResource;
+};
+
+export type ItemPayload = {
+  id: number;
+  prices: ItemPricePayload[];
+  sprites: { default: string | null };
+  category: NamedResource;
+  attributes: NamedResource[];
+  effect_entries: { effect?: string; short_effect?: string; language: { name: string } }[];
+  flavor_text_entries: {
+    text: string;
+    language: { name: string };
+    version_group?: NamedResource;
+  }[];
+  names: LocalizedName[];
+  held_by_pokemon: {
+    pokemon: NamedResource;
+    version_details?: { version: NamedResource }[];
+  }[];
+  machines?: { machine: NamedResource; version_group: NamedResource }[];
+  fling_power?: number | null;
+  fling_effect?: NamedResource | null;
+};
+
 export type VersionPage = {
   count: number;
   results: NamedResource[];
@@ -100,11 +128,22 @@ export type VersionPayload = {
 
 export type VersionGroupPayload = {
   id: number;
+  versions: NamedResource[];
   generation: NamedResource;
 };
 
+export type MachinePayload = {
+  id: number;
+  move: NamedResource;
+};
+
+export type FlingEffectPayload = {
+  id: number;
+  effect_entries: { effect: string; language: { name: string } }[];
+};
+
 export abstract class PokeApi {
-  abstract listPokemon(offset: number, limit: number): Promise<PokemonPage>;
+  abstract listPokemon(offset: number, limit: number): Promise<ResourcePage>;
   abstract listRegions(offset: number, limit: number): Promise<ResourcePage>;
   abstract getRegion(id: number): Promise<RegionPayload>;
   abstract getLocation(id: number): Promise<LocationPayload>;
@@ -117,8 +156,14 @@ export abstract class PokeApi {
   abstract getAbility(id: number): Promise<DescribedPayload>;
   abstract getMove(id: number): Promise<DescribedPayload>;
   abstract getStat(id: number): Promise<DescribedPayload>;
+  abstract listItems(offset: number, limit: number): Promise<ResourcePage>;
+  abstract getItem(id: number): Promise<ItemPayload>;
+  abstract getItemCategory(id: number): Promise<DescribedPayload>;
+  abstract getItemAttribute(id: number): Promise<DescribedPayload>;
   abstract listVersions(offset: number, limit: number): Promise<VersionPage>;
   abstract getVersion(id: number): Promise<VersionPayload>;
   abstract getVersionGroup(id: number): Promise<VersionGroupPayload>;
   abstract getGeneration(id: number): Promise<DescribedPayload>;
+  abstract getMachine(id: number): Promise<MachinePayload>;
+  abstract getItemFlingEffect(id: number): Promise<FlingEffectPayload>;
 }

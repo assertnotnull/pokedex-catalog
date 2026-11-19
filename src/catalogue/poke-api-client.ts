@@ -3,9 +3,11 @@ import {
   UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
+  type FlingEffectPayload,
+  type ItemPayload,
   type LocationAreaPayload,
   type LocationPayload,
-  type PokemonPage,
+  type MachinePayload,
   type PokemonPayload,
   type RegionPayload,
   type ResourcePage,
@@ -19,7 +21,7 @@ import {
 const ROOT = "https://pokeapi.co/api/v2";
 
 export class PokeApiClient extends PokeApi {
-  listPokemon(offset: number, limit: number): Promise<PokemonPage> {
+  listPokemon(offset: number, limit: number): Promise<ResourcePage> {
     return this.get(`${ROOT}/pokemon?limit=${limit}&offset=${offset}`);
   }
 
@@ -71,6 +73,22 @@ export class PokeApiClient extends PokeApi {
     return this.get(`${ROOT}/stat/${id}/`);
   }
 
+  listItems(offset: number, limit: number): Promise<ResourcePage> {
+    return this.get(`${ROOT}/item?limit=${limit}&offset=${offset}`);
+  }
+
+  getItem(id: number): Promise<ItemPayload> {
+    return this.get(`${ROOT}/item/${id}/`);
+  }
+
+  getItemCategory(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/item-category/${id}/`);
+  }
+
+  getItemAttribute(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/item-attribute/${id}/`);
+  }
+
   listVersions(offset: number, limit: number): Promise<VersionPage> {
     return this.get(`${ROOT}/version?limit=${limit}&offset=${offset}`);
   }
@@ -81,6 +99,14 @@ export class PokeApiClient extends PokeApi {
 
   getVersionGroup(id: number): Promise<VersionGroupPayload> {
     return this.get(`${ROOT}/version-group/${id}/`);
+  }
+
+  getMachine(id: number): Promise<MachinePayload> {
+    return this.get(`${ROOT}/machine/${id}/`);
+  }
+
+  getItemFlingEffect(id: number): Promise<FlingEffectPayload> {
+    return this.get(`${ROOT}/item-fling-effect/${id}/`);
   }
 
   getGeneration(id: number): Promise<DescribedPayload> {

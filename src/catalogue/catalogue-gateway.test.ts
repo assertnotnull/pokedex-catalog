@@ -6,6 +6,7 @@ import { Clock, FixedClock } from "./clock";
 import {
   CatalogueUnavailableError,
   UnknownGameError,
+  UnknownItemError,
   UnknownLocationError,
   UnknownPokemonError,
   UnknownRegionError,
@@ -24,6 +25,9 @@ import {
   type RegionPayload,
   type ResourcePage,
   type SpeciesPayload,
+  type FlingEffectPayload,
+  type ItemPayload,
+  type MachinePayload,
   type TypePayload,
   type VersionGroupPayload,
   type VersionPage,
@@ -51,6 +55,12 @@ type CatalogueFixture = {
   regions?: Map<number, RegionPayload>;
   locations?: Map<number, LocationPayload>;
   locationAreas?: Map<number, LocationAreaPayload>;
+  itemPages?: Map<string, ResourcePage>;
+  items?: Map<number, ItemPayload>;
+  itemCategories?: Map<number, DescribedPayload>;
+  itemAttributes?: Map<number, DescribedPayload>;
+  machines?: Map<number, MachinePayload>;
+  flingEffects?: Map<number, FlingEffectPayload>;
   versionPages?: Map<string, VersionPage>;
   versions?: Map<number, VersionPayload>;
   versionGroups?: Map<number, VersionGroupPayload>;
@@ -430,6 +440,94 @@ describe("catalogue gateway", () => {
       ],
     });
   });
+
+  test("an item list entry keeps only the v1 fields and resolves French names", async () => {
+    const { gateway } = openGateway(itemCatalogue());
+
+    const page = await gateway.listItems(1);
+
+    expect(page.total).toBe(2);
+    expect(page.entries).toEqual([
+      {
+        id: 4,
+        frenchName: "Poké Ball",
+        spriteUrl:
+          "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png",
+        category: "Poké Balls",
+      },
+      {
+        id: 1,
+        frenchName: "Master Ball",
+        spriteUrl: null,
+        category: "Standard Balls",
+      },
+    ]);
+  });
+
+  test("each item list page requests the next 24 entries", async () => {
+    const { gateway, upstream } = openGateway(itemCatalogue());
+
+    await gateway.listItems(1);
+    await gateway.listItems(2);
+
+    expect(upstream.itemListCalls).toEqual([
+      { offset: 0, limit: 24 },
+      { offset: 24, limit: 24 },
+    ]);
+  });
+
+  test("an item detail shows the French reference and the Pokémon that hold it", async () => {
+    const { gateway } = openGateway(itemCatalogue());
+
+    expect(await gateway.getItem(4)).toEqual({
+      id: 4,
+      frenchName: "Poké Ball",
+      spriteUrl:
+        "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png",
+      category: "Poké Balls",
+      prices: [{ versions: "Rouge / Bleu", purchasePrice: 200, sellPrice: 100 }],
+      effect: "Tente de capturer un Pokémon sauvage. Inutile contre un dresseur.",
+      flavorTexts: [
+        { versions: "Rouge / Bleu", text: "Un objet pour capturer les Pokémon sauvages." },
+        { versions: "Jaune", text: "Aussi utile dans Jaune." },
+      ],
+      flingPower: 30,
+      flingEffect: "Empoisonne gravement la cible.",
+      attributes: ["Tenue possible"],
+      machines: [{ versions: "Rouge / Bleu", move: "Ultimapoing" }],
+      heldBy: [{ nationalNumber: 25, frenchName: "Pikachu", versions: ["Rouge"] }],
+    });
+  });
+
+  test("item prices stay paired inside each version group", async () => {
+    const { gateway } = openGateway(itemCatalogue());
+
+    const item = await gateway.getItem(2);
+
+    expect(item.prices).toEqual([
+      { versions: "Rouge / Bleu", purchasePrice: 3000, sellPrice: 1500 },
+      { versions: "Jaune", purchasePrice: null, sellPrice: 400 },
+    ]);
+  });
+
+  test("an item without prices has no purchase or sell price", async () => {
+    const { gateway } = openGateway(itemCatalogue());
+
+    const item = await gateway.getItem(1);
+
+    expect(item.prices).toEqual([]);
+    expect(item.effect).toBeNull();
+    expect(item.flavorTexts).toEqual([]);
+    expect(item.machines).toEqual([]);
+    expect(item.flingEffect).toBeNull();
+    expect(item.frenchName).toBe("Master Ball");
+  });
+
+  test("a missing item is a not-found error", async () => {
+    const { gateway } = openGateway(itemCatalogue());
+
+    await expect(gateway.getItem(404)).rejects.toBeInstanceOf(UnknownItemError);
+  });
 });
 
 function longRegionIndex(): CatalogueFixture {
@@ -706,6 +804,7 @@ function gameCatalogue(): CatalogueFixture {
         {
           id: 1,
           generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
+          versions: [],
         },
       ],
       [
@@ -713,6 +812,7 @@ function gameCatalogue(): CatalogueFixture {
         {
           id: 3,
           generation: { name: "generation-ii", url: "https://pokeapi.co/api/v2/generation/2/" },
+          versions: [],
         },
       ],
     ]),
@@ -1040,6 +1140,251 @@ function dittoCatalogue(): CatalogueFixture {
   };
 }
 
+function itemCatalogue(): CatalogueFixture {
+  return {
+    pages: new Map(),
+    pokemon: new Map([
+      [
+        25,
+        {
+          id: 25,
+          sprites: { front_default: null },
+          types: [],
+          stats: [],
+          abilities: [],
+          moves: [],
+          species: { name: "pikachu", url: "https://pokeapi.co/api/v2/pokemon-species/25/" },
+        },
+      ],
+    ]),
+    species: new Map([
+      [
+        25,
+        {
+          id: 25,
+          names: [{ name: "Pikachu", language: { name: "fr" } }],
+        },
+      ],
+    ]),
+    types: new Map(),
+    ...emptyRelated(),
+    itemPages: new Map([
+      [
+        "0:24",
+        {
+          count: 2,
+          results: [
+            { name: "poke-ball", url: "https://pokeapi.co/api/v2/item/4/" },
+            { name: "master-ball", url: "https://pokeapi.co/api/v2/item/1/" },
+          ],
+        },
+      ],
+      ["24:24", { count: 2, results: [] }],
+    ]),
+    items: new Map([
+      [
+        4,
+        {
+          id: 4,
+          prices: [
+            {
+              purchase_price: 200,
+              sell_price: 100,
+              version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+            },
+          ],
+          sprites: {
+            default:
+              "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png",
+          },
+          category: { name: "standard-balls", url: "https://pokeapi.co/api/v2/item-category/34/" },
+          attributes: [
+            { name: "holdable", url: "https://pokeapi.co/api/v2/item-attribute/5/" },
+          ],
+          effect_entries: [
+            {
+              effect: "Tente de capturer un Pokémon sauvage. Inutile contre un dresseur.",
+              short_effect: "Permet de capturer un Pokémon sauvage.",
+              language: { name: "fr" },
+            },
+          ],
+          flavor_text_entries: [
+            {
+              text: "Un objet pour\ncapturer les Pokémon sauvages.",
+              language: { name: "fr" },
+              version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+            },
+            {
+              text: "Aussi utile dans Jaune.",
+              language: { name: "fr" },
+              version_group: { name: "yellow", url: "https://pokeapi.co/api/v2/version-group/2/" },
+            },
+          ],
+          names: [
+            { name: "Poke Ball", language: { name: "en" } },
+            { name: "Poké Ball", language: { name: "fr" } },
+          ],
+          held_by_pokemon: [
+            {
+              pokemon: { name: "pikachu", url: "https://pokeapi.co/api/v2/pokemon/25/" },
+              version_details: [
+                { version: { name: "red", url: "https://pokeapi.co/api/v2/version/1/" } },
+              ],
+            },
+          ],
+          machines: [
+            {
+              machine: { name: "tm01", url: "https://pokeapi.co/api/v2/machine/2/" },
+              version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+            },
+          ],
+          fling_power: 30,
+          fling_effect: { name: "badly-poison", url: "https://pokeapi.co/api/v2/item-fling-effect/1/" },
+        },
+      ],
+      [
+        1,
+        {
+          id: 1,
+          prices: [],
+          sprites: { default: null },
+          category: { name: "standard-balls", url: "https://pokeapi.co/api/v2/item-category/33/" },
+          attributes: [],
+          effect_entries: [],
+          flavor_text_entries: [],
+          names: [{ name: "Master Ball", language: { name: "en" } }],
+          held_by_pokemon: [],
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          prices: [
+            {
+              purchase_price: 3000,
+              sell_price: 1500,
+              version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+            },
+            {
+              purchase_price: null,
+              sell_price: 400,
+              version_group: { name: "yellow", url: "https://pokeapi.co/api/v2/version-group/2/" },
+            },
+          ],
+          sprites: { default: null },
+          category: { name: "standard-balls", url: "https://pokeapi.co/api/v2/item-category/33/" },
+          attributes: [],
+          effect_entries: [],
+          flavor_text_entries: [],
+          names: [{ name: "Ultra Ball", language: { name: "en" } }],
+          held_by_pokemon: [],
+        },
+      ],
+    ]),
+    itemCategories: new Map([
+      [
+        34,
+        {
+          id: 34,
+          names: [
+            { name: "Poké Balls", language: { name: "en" } },
+            { name: "Poké Balls", language: { name: "fr" } },
+          ],
+        },
+      ],
+      [
+        33,
+        {
+          id: 33,
+          names: [{ name: "Standard Balls", language: { name: "en" } }],
+        },
+      ],
+    ]),
+    itemAttributes: new Map([
+      [
+        5,
+        {
+          id: 5,
+          names: [
+            { name: "Holdable", language: { name: "en" } },
+            { name: "Tenue possible", language: { name: "fr" } },
+          ],
+        },
+      ],
+    ]),
+    versionGroups: new Map([
+      [
+        1,
+        {
+          id: 1,
+          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
+          versions: [
+            { name: "red", url: "https://pokeapi.co/api/v2/version/1/" },
+            { name: "blue", url: "https://pokeapi.co/api/v2/version/2/" },
+          ],
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
+          versions: [{ name: "yellow", url: "https://pokeapi.co/api/v2/version/3/" }],
+        },
+      ],
+    ]),
+    versions: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [{ name: "Rouge", language: { name: "fr" } }],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          names: [{ name: "Bleu", language: { name: "fr" } }],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        3,
+        {
+          id: 3,
+          names: [{ name: "Jaune", language: { name: "fr" } }],
+          version_group: { name: "yellow", url: "https://pokeapi.co/api/v2/version-group/2/" },
+        },
+      ],
+    ]),
+    machines: new Map([[2, { id: 2, move: { name: "mega-punch", url: "https://pokeapi.co/api/v2/move/5/" } }]]),
+    flingEffects: new Map([
+      [
+        1,
+        {
+          id: 1,
+          effect_entries: [{ effect: "Empoisonne gravement la cible.", language: { name: "fr" } }],
+        },
+      ],
+    ]),
+    moves: new Map([
+      [
+        5,
+        {
+          id: 5,
+          names: [
+            { name: "Mega Punch", language: { name: "en" } },
+            { name: "Ultimapoing", language: { name: "fr" } },
+          ],
+        },
+      ],
+    ]),
+  };
+}
+
 function openGateway(fixture: CatalogueFixture = defaultCatalogue()) {
   const cache = new InMemoryCacheStore();
   const clock = new FixedClock(T0);
@@ -1060,6 +1405,7 @@ class FakePokeApi extends PokeApi {
   callCount = 0;
   fail = false;
   listCalls: { offset: number; limit: number }[] = [];
+  itemListCalls: { offset: number; limit: number }[] = [];
 
   constructor(private readonly fixture: CatalogueFixture) {
     super();
@@ -1141,6 +1487,34 @@ class FakePokeApi extends PokeApi {
 
   getGeneration(id: number): Promise<DescribedPayload> {
     return this.read(() => this.fixture.generations?.get(id), `generation ${id}`);
+  }
+
+  listItems(offset: number, limit: number): Promise<ResourcePage> {
+    this.itemListCalls.push({ offset, limit });
+    return this.read(
+      () => this.fixture.itemPages?.get(`${offset}:${limit}`),
+      `item page ${offset}:${limit}`,
+    );
+  }
+
+  getItem(id: number): Promise<ItemPayload> {
+    return this.read(() => this.fixture.items?.get(id), `item ${id}`, true);
+  }
+
+  getItemCategory(id: number): Promise<DescribedPayload> {
+    return this.read(() => this.fixture.itemCategories?.get(id), `item category ${id}`);
+  }
+
+  getItemAttribute(id: number): Promise<DescribedPayload> {
+    return this.read(() => this.fixture.itemAttributes?.get(id), `item attribute ${id}`);
+  }
+
+  getMachine(id: number): Promise<MachinePayload> {
+    return this.read(() => this.fixture.machines?.get(id), `machine ${id}`);
+  }
+
+  getItemFlingEffect(id: number): Promise<FlingEffectPayload> {
+    return this.read(() => this.fixture.flingEffects?.get(id), `fling effect ${id}`);
   }
 
   private read<T>(load: () => T | undefined, label: string, missingIsNotFound = false): Promise<T> {
