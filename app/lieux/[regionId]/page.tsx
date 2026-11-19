@@ -80,7 +80,7 @@ async function RegionLocations({
         page={page}
         total={list.total}
         pageSize={LOCATION_PAGE_SIZE}
-        path={`/lieux/${regionId}`}
+        pathname={`/lieux/${regionId}`}
       />
     </div>
   );
