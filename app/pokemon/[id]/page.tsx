@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { CatalogueUnavailable } from "../../components/catalogue-unavailable";
 import { Sprite } from "../../components/sprite";
@@ -22,10 +21,13 @@ export default function PokemonDetailPage({ params }: PageProps<"/pokemon/[id]">
 async function PokemonDetailView({ params }: { params: PageProps<"/pokemon/[id]">["params"] }) {
   const { id } = await params;
   if (!/^[1-9]\d*$/.test(id)) {
-    notFound();
+    return <MissingPokemon />;
   }
 
   const pokemon = await loadPokemon(Number(id));
+  if (pokemon === "missing") {
+    return <MissingPokemon />;
+  }
   if (pokemon === "unavailable") {
     return (
       <div className="mx-auto w-full max-w-6xl px-4 py-10">
@@ -37,12 +39,24 @@ async function PokemonDetailView({ params }: { params: PageProps<"/pokemon/[id]"
   return <PokemonDetailContent pokemon={pokemon} />;
 }
 
-async function loadPokemon(id: number): Promise<PokemonDetail | "unavailable"> {
+function MissingPokemon() {
+  return (
+    <div className="catalogue-page gap-4">
+      <h1 className="font-display text-4xl">Pokémon introuvable</h1>
+      <p>Ce numéro ne correspond à aucun Pokémon du catalogue.</p>
+      <Link href="/pokemon" className="btn btn-primary w-fit">
+        Retour à la liste
+      </Link>
+    </div>
+  );
+}
+
+async function loadPokemon(id: number): Promise<PokemonDetail | "missing" | "unavailable"> {
   try {
     return await getCatalogueGateway().getPokemon(id);
   } catch (error) {
     if (error instanceof UnknownPokemonError) {
-      notFound();
+      return "missing";
     }
     if (error instanceof CatalogueUnavailableError) {
       return "unavailable";

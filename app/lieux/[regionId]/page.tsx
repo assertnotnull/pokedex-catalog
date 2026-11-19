@@ -1,18 +1,18 @@
-import Link from "next/link";
-import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import Link from "next/link";
 import { CatalogueUnavailable } from "../../components/catalogue-unavailable";
 import { Pagination } from "../../components/pagination";
+import { parsePage } from "../../parse-page";
 import { getCatalogueGateway } from "@/src/catalogue/composition";
 import {
-  LOCATION_PAGE_SIZE,
-  type LocationListEntry,
+  LIST_PAGE_SIZE,
   type LocationListPage,
+  type RegionSummary,
 } from "@/src/catalogue/catalogue-gateway";
 import { CatalogueUnavailableError, UnknownRegionError } from "@/src/catalogue/errors";
 
 export const metadata = {
-  title: "Lieux — Pokédex",
+  title: "Lieux d’une région — Pokédex",
 };
 
 export default function RegionLocationsPage({
@@ -33,16 +33,17 @@ async function RegionLocations({
   params: PageProps<"/lieux/[regionId]">["params"];
   searchParams: PageProps<"/lieux/[regionId]">["searchParams"];
 }) {
-  const { regionId: rawRegionId } = await params;
-  const regionId = parseId(rawRegionId);
-  if (regionId === null) {
-    notFound();
+  const { regionId } = await params;
+  if (!/^[1-9]\d*$/.test(regionId)) {
+    return <MissingRegion />;
   }
-
   const { page: rawPage } = await searchParams;
   const page = parsePage(rawPage);
-  const list = await loadLocations(regionId, page);
-  if (list === "unavailable") {
+  const loaded = await loadRegion(Number(regionId), page);
+  if (loaded === "missing") {
+    return <MissingRegion />;
+  }
+  if (loaded === "unavailable") {
     return (
       <div className="mx-auto w-full max-w-6xl px-4 py-10">
         <CatalogueUnavailable />
@@ -52,49 +53,59 @@ async function RegionLocations({
 
   return (
     <div className="catalogue-page">
-      <div className="breadcrumbs">
-        <ul>
-          <li>
-            <Link href="/lieux">Lieux</Link>
-          </li>
-          <li aria-current="page">{list.regionName}</li>
-        </ul>
-      </div>
-      <h1 className="font-display text-4xl leading-tight">{list.regionName}</h1>
-      {list.entries.length === 0 ? (
-        <p>
-          {list.total === 0
-            ? "Cette région ne contient aucun lieu."
-            : "Cette page ne contient aucun lieu."}
-        </p>
+      <p>
+        <Link href="/lieux" className="link">
+          Toutes les régions
+        </Link>
+      </p>
+      <h1 className="font-display text-4xl leading-tight">{loaded.region.frenchName}</h1>
+      {loaded.list.entries.length === 0 ? (
+        <p>Cette région ne contient aucun lieu.</p>
       ) : (
         <ul className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
-          {list.entries.map((entry) => (
+          {loaded.list.entries.map((entry) => (
             <li key={entry.id}>
-              <LocationTile regionId={regionId} entry={entry} />
+              <Link
+                href={`/lieux/${loaded.region.id}/${entry.id}`}
+                className="catalogue-panel block h-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              >
+                <span className="flex flex-col gap-2 px-4 py-6 text-center">
+                  <span className="font-display text-2xl leading-none">{entry.frenchName}</span>
+                  <span className="badge badge-outline">{entry.regionName}</span>
+                </span>
+              </Link>
             </li>
           ))}
         </ul>
       )}
       <Pagination
         page={page}
-        total={list.total}
-        pageSize={LOCATION_PAGE_SIZE}
-        path={`/lieux/${regionId}`}
+        total={loaded.list.total}
+        pageSize={LIST_PAGE_SIZE}
+        pathname={`/lieux/${loaded.region.id}`}
       />
     </div>
   );
 }
 
-async function loadLocations(
+async function loadRegion(
   regionId: number,
   page: number,
-): Promise<LocationListPage | "unavailable"> {
+): Promise<{ region: RegionSummary; list: LocationListPage } | "missing" | "unavailable"> {
   try {
-    return await getCatalogueGateway().listLocations(regionId, page);
+    const gateway = getCatalogueGateway();
+    const [regions, list] = await Promise.all([
+      gateway.listRegions(),
+      gateway.listLocations(regionId, page),
+    ]);
+    const region = regions.find((entry) => entry.id === regionId);
+    if (!region) {
+      return "missing";
+    }
+    return { region, list };
   } catch (error) {
     if (error instanceof UnknownRegionError) {
-      notFound();
+      return "missing";
     }
     if (error instanceof CatalogueUnavailableError) {
       return "unavailable";
@@ -103,31 +114,14 @@ async function loadLocations(
   }
 }
 
-function LocationTile({ regionId, entry }: { regionId: number; entry: LocationListEntry }) {
+function MissingRegion() {
   return (
-    <Link
-      href={`/lieux/${regionId}/${entry.id}`}
-      className="catalogue-panel block h-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-    >
-      <span className="flex flex-col gap-2 px-4 pb-6 pt-7">
-        <span className="font-display text-2xl leading-none">{entry.frenchName}</span>
-        <span className="text-sm text-base-content/60">{entry.regionName}</span>
-      </span>
-    </Link>
+    <div className="catalogue-page gap-4">
+      <h1 className="font-display text-4xl">Région introuvable</h1>
+      <p>Ce numéro ne correspond à aucune région du catalogue.</p>
+      <Link href="/lieux" className="btn btn-primary w-fit">
+        Retour aux régions
+      </Link>
+    </div>
   );
-}
-
-function parseId(value: string): number | null {
-  if (!/^[1-9]\d*$/.test(value)) {
-    return null;
-  }
-  return Number(value);
-}
-
-function parsePage(value: string | string[] | undefined): number {
-  const raw = Array.isArray(value) ? value[0] : value;
-  if (!raw || !/^[1-9]\d*$/.test(raw)) {
-    return 1;
-  }
-  return Number(raw);
 }
