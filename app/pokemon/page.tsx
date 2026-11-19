@@ -54,7 +54,7 @@ async function PokemonList({
           ))}
         </ul>
       )}
-      <Pagination page={page} total={list.total} pageSize={POKEMON_PAGE_SIZE} pathname="/pokemon" />
+      <Pagination page={page} total={list.total} pageSize={POKEMON_PAGE_SIZE} path="/pokemon" />
     </div>
   );
 }

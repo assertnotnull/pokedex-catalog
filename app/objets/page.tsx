@@ -54,7 +54,7 @@ async function ItemList({
           ))}
         </ul>
       )}
-      <Pagination page={page} total={list.total} pageSize={LIST_PAGE_SIZE} pathname="/objets" />
+      <Pagination page={page} total={list.total} pageSize={LIST_PAGE_SIZE} path="/objets" />
     </div>
   );
 }
