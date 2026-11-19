@@ -3,14 +3,19 @@ import {
   UpstreamNotFound,
   type DescribedPayload,
   type EvolutionChainPayload,
+  type GenerationPayload,
+  type ItemPayload,
   type LocationAreaPayload,
   type LocationPayload,
   type PokemonPage,
   type PokemonPayload,
+  type PokedexPayload,
   type RegionPayload,
   type ResourcePage,
   type SpeciesPayload,
   type TypePayload,
+  type VersionGroupPayload,
+  type VersionPayload,
 } from "./poke-api";
 
 const ROOT = "https://pokeapi.co/api/v2";
@@ -34,10 +39,6 @@ export class PokeApiClient extends PokeApi {
 
   getLocationArea(id: number): Promise<LocationAreaPayload> {
     return this.get(`${ROOT}/location-area/${id}/`);
-  }
-
-  getVersion(id: number): Promise<DescribedPayload> {
-    return this.get(`${ROOT}/version/${id}/`);
   }
 
   getEncounterMethod(id: number): Promise<DescribedPayload> {
@@ -70,6 +71,42 @@ export class PokeApiClient extends PokeApi {
 
   getStat(id: number): Promise<DescribedPayload> {
     return this.get(`${ROOT}/stat/${id}/`);
+  }
+
+  listItems(offset: number, limit: number): Promise<PokemonPage> {
+    return this.get(`${ROOT}/item?limit=${limit}&offset=${offset}`);
+  }
+
+  getItem(id: number): Promise<ItemPayload> {
+    return this.get(`${ROOT}/item/${id}/`);
+  }
+
+  getItemCategory(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/item-category/${id}/`);
+  }
+
+  getItemAttribute(id: number): Promise<DescribedPayload> {
+    return this.get(`${ROOT}/item-attribute/${id}/`);
+  }
+
+  listVersions(offset: number, limit: number): Promise<PokemonPage> {
+    return this.get(`${ROOT}/version?limit=${limit}&offset=${offset}`);
+  }
+
+  getVersion(id: number): Promise<VersionPayload> {
+    return this.get(`${ROOT}/version/${id}/`);
+  }
+
+  getVersionGroup(id: number): Promise<VersionGroupPayload> {
+    return this.get(`${ROOT}/version-group/${id}/`);
+  }
+
+  getGeneration(id: number): Promise<GenerationPayload> {
+    return this.get(`${ROOT}/generation/${id}/`);
+  }
+
+  getPokedex(id: number): Promise<PokedexPayload> {
+    return this.get(`${ROOT}/pokedex/${id}/`);
   }
 
   private async get<T>(url: string): Promise<T> {
