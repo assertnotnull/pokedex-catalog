@@ -5,6 +5,7 @@ import { CatalogueGateway } from "./catalogue-gateway";
 import { Clock, FixedClock } from "./clock";
 import {
   CatalogueUnavailableError,
+  UnknownGameError,
   UnknownItemError,
   UnknownLocationError,
   UnknownPokemonError,
@@ -27,9 +28,10 @@ import {
   type FlingEffectPayload,
   type ItemPayload,
   type MachinePayload,
-  type ResourcePage,
   type TypePayload,
   type VersionGroupPayload,
+  type VersionPage,
+  type VersionPayload,
 } from "./poke-api";
 
 const T0 = 1_700_000_000_000;
@@ -57,10 +59,12 @@ type CatalogueFixture = {
   items?: Map<number, ItemPayload>;
   itemCategories?: Map<number, DescribedPayload>;
   itemAttributes?: Map<number, DescribedPayload>;
-  versionGroups?: Map<number, VersionGroupPayload>;
-  versions?: Map<number, DescribedPayload>;
   machines?: Map<number, MachinePayload>;
   flingEffects?: Map<number, FlingEffectPayload>;
+  versionPages?: Map<string, VersionPage>;
+  versions?: Map<number, VersionPayload>;
+  versionGroups?: Map<number, VersionGroupPayload>;
+  generations?: Map<number, DescribedPayload>;
   encounterMethods?: Map<number, DescribedPayload>;
 };
 
@@ -376,6 +380,67 @@ describe("catalogue gateway", () => {
     await expect(gateway.getLocation(5, 67)).rejects.toBeInstanceOf(UnknownLocationError);
   });
 
+  test("a game list shows French names, an English fallback, the generation label, and no artwork when none is published", async () => {
+    const { gateway } = openGateway(gameCatalogue());
+
+    expect(await gateway.listGames(1)).toEqual({
+      total: 26,
+      entries: [
+        {
+          id: 1,
+          frenchName: "Rouge",
+          artworkUrl: null,
+          label: "1re Génération",
+        },
+        {
+          id: 4,
+          frenchName: "Gold",
+          artworkUrl: null,
+          label: "Generation II",
+        },
+      ],
+    });
+  });
+
+  test("a missing game is a not-found error", async () => {
+    const { gateway } = openGateway();
+
+    await expect(gateway.getGame(404)).rejects.toBeInstanceOf(UnknownGameError);
+  });
+
+  test("a game detail shows the French name, the English fallback, and the generation label", async () => {
+    const { gateway } = openGateway(gameCatalogue());
+
+    expect(await gateway.getGame(1)).toEqual({
+      id: 1,
+      frenchName: "Rouge",
+      artworkUrl: null,
+      label: "1re Génération",
+    });
+    expect(await gateway.getGame(4)).toEqual({
+      id: 4,
+      frenchName: "Gold",
+      artworkUrl: null,
+      label: "Generation II",
+    });
+  });
+
+  test("each game list page returns the next 24 games", async () => {
+    const { gateway } = openGateway(gameCatalogue());
+
+    expect(await gateway.listGames(2)).toEqual({
+      total: 26,
+      entries: [
+        {
+          id: 5,
+          frenchName: "Argent",
+          artworkUrl: null,
+          label: "Generation II",
+        },
+      ],
+    });
+  });
+
   test("an item list entry keeps only the v1 fields and resolves French names", async () => {
     const { gateway } = openGateway(itemCatalogue());
 
@@ -545,8 +610,22 @@ function worldCatalogue(): CatalogueFixture {
     locations: kanto.byId,
     locationAreas: celadonAreas(),
     versions: new Map([
-      [1, { id: 1, names: french("Rouge", "Red") }],
-      [2, { id: 2, names: [{ name: "Blue", language: { name: "en" } }] }],
+      [
+        1,
+        {
+          id: 1,
+          names: french("Rouge", "Red"),
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          names: [{ name: "Blue", language: { name: "en" } }],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
     ]),
     encounterMethods: new Map([
       [1, { id: 1, names: french("Marche", "Walk") }],
@@ -659,6 +738,104 @@ function french(fr: string, en: string): { name: string; language: { name: strin
     { name: en, language: { name: "en" } },
     { name: fr, language: { name: "fr" } },
   ];
+}
+
+function gameCatalogue(): CatalogueFixture {
+  return {
+    pages: new Map(),
+    pokemon: new Map(),
+    species: new Map(),
+    types: new Map(),
+    ...emptyRelated(),
+    versionPages: new Map([
+      [
+        "0:24",
+        {
+          count: 26,
+          results: [
+            { name: "red", url: "https://pokeapi.co/api/v2/version/1/" },
+            { name: "gold", url: "https://pokeapi.co/api/v2/version/4/" },
+          ],
+        },
+      ],
+      [
+        "24:24",
+        {
+          count: 26,
+          results: [{ name: "silver", url: "https://pokeapi.co/api/v2/version/5/" }],
+        },
+      ],
+    ]),
+    versions: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Red", language: { name: "en" } },
+            { name: "Rouge", language: { name: "fr" } },
+          ],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        4,
+        {
+          id: 4,
+          names: [{ name: "Gold", language: { name: "en" } }],
+          version_group: { name: "gold-silver", url: "https://pokeapi.co/api/v2/version-group/3/" },
+        },
+      ],
+      [
+        5,
+        {
+          id: 5,
+          names: [
+            { name: "Silver", language: { name: "en" } },
+            { name: "Argent", language: { name: "fr" } },
+          ],
+          version_group: { name: "gold-silver", url: "https://pokeapi.co/api/v2/version-group/3/" },
+        },
+      ],
+    ]),
+    versionGroups: new Map([
+      [
+        1,
+        {
+          id: 1,
+          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
+          versions: [],
+        },
+      ],
+      [
+        3,
+        {
+          id: 3,
+          generation: { name: "generation-ii", url: "https://pokeapi.co/api/v2/generation/2/" },
+          versions: [],
+        },
+      ],
+    ]),
+    generations: new Map([
+      [
+        1,
+        {
+          id: 1,
+          names: [
+            { name: "Generation I", language: { name: "en" } },
+            { name: "1re Génération", language: { name: "fr" } },
+          ],
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          names: [{ name: "Generation II", language: { name: "en" } }],
+        },
+      ],
+    ]),
+  };
 }
 
 function nameCatalogue(): CatalogueFixture {
@@ -1141,6 +1318,7 @@ function itemCatalogue(): CatalogueFixture {
         1,
         {
           id: 1,
+          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
           versions: [
             { name: "red", url: "https://pokeapi.co/api/v2/version/1/" },
             { name: "blue", url: "https://pokeapi.co/api/v2/version/2/" },
@@ -1151,14 +1329,36 @@ function itemCatalogue(): CatalogueFixture {
         2,
         {
           id: 2,
+          generation: { name: "generation-i", url: "https://pokeapi.co/api/v2/generation/1/" },
           versions: [{ name: "yellow", url: "https://pokeapi.co/api/v2/version/3/" }],
         },
       ],
     ]),
     versions: new Map([
-      [1, { id: 1, names: [{ name: "Rouge", language: { name: "fr" } }] }],
-      [2, { id: 2, names: [{ name: "Bleu", language: { name: "fr" } }] }],
-      [3, { id: 3, names: [{ name: "Jaune", language: { name: "fr" } }] }],
+      [
+        1,
+        {
+          id: 1,
+          names: [{ name: "Rouge", language: { name: "fr" } }],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        2,
+        {
+          id: 2,
+          names: [{ name: "Bleu", language: { name: "fr" } }],
+          version_group: { name: "red-blue", url: "https://pokeapi.co/api/v2/version-group/1/" },
+        },
+      ],
+      [
+        3,
+        {
+          id: 3,
+          names: [{ name: "Jaune", language: { name: "fr" } }],
+          version_group: { name: "yellow", url: "https://pokeapi.co/api/v2/version-group/2/" },
+        },
+      ],
     ]),
     machines: new Map([[2, { id: 2, move: { name: "mega-punch", url: "https://pokeapi.co/api/v2/move/5/" } }]]),
     flingEffects: new Map([
@@ -1266,12 +1466,27 @@ class FakePokeApi extends PokeApi {
     return this.read(() => this.fixture.locationAreas?.get(id), `location area ${id}`);
   }
 
-  getVersion(id: number): Promise<DescribedPayload> {
-    return this.read(() => this.fixture.versions?.get(id), `version ${id}`);
+  getVersion(id: number): Promise<VersionPayload> {
+    return this.read(() => this.fixture.versions?.get(id), `version ${id}`, true);
   }
 
   getEncounterMethod(id: number): Promise<DescribedPayload> {
     return this.read(() => this.fixture.encounterMethods?.get(id), `encounter method ${id}`);
+  }
+
+  listVersions(offset: number, limit: number): Promise<VersionPage> {
+    return this.read(
+      () => this.fixture.versionPages?.get(`${offset}:${limit}`),
+      `version page ${offset}:${limit}`,
+    );
+  }
+
+  getVersionGroup(id: number): Promise<VersionGroupPayload> {
+    return this.read(() => this.fixture.versionGroups?.get(id), `version group ${id}`);
+  }
+
+  getGeneration(id: number): Promise<DescribedPayload> {
+    return this.read(() => this.fixture.generations?.get(id), `generation ${id}`);
   }
 
   listItems(offset: number, limit: number): Promise<ResourcePage> {
@@ -1292,10 +1507,6 @@ class FakePokeApi extends PokeApi {
 
   getItemAttribute(id: number): Promise<DescribedPayload> {
     return this.read(() => this.fixture.itemAttributes?.get(id), `item attribute ${id}`);
-  }
-
-  getVersionGroup(id: number): Promise<VersionGroupPayload> {
-    return this.read(() => this.fixture.versionGroups?.get(id), `version group ${id}`);
   }
 
   getMachine(id: number): Promise<MachinePayload> {

@@ -115,9 +115,21 @@ export type ItemPayload = {
   fling_effect?: NamedResource | null;
 };
 
+export type VersionPage = {
+  count: number;
+  results: NamedResource[];
+};
+
+export type VersionPayload = {
+  id: number;
+  names: LocalizedName[];
+  version_group: NamedResource;
+};
+
 export type VersionGroupPayload = {
   id: number;
   versions: NamedResource[];
+  generation: NamedResource;
 };
 
 export type MachinePayload = {
@@ -148,8 +160,10 @@ export abstract class PokeApi {
   abstract getItem(id: number): Promise<ItemPayload>;
   abstract getItemCategory(id: number): Promise<DescribedPayload>;
   abstract getItemAttribute(id: number): Promise<DescribedPayload>;
+  abstract listVersions(offset: number, limit: number): Promise<VersionPage>;
+  abstract getVersion(id: number): Promise<VersionPayload>;
   abstract getVersionGroup(id: number): Promise<VersionGroupPayload>;
-  abstract getVersion(id: number): Promise<DescribedPayload>;
+  abstract getGeneration(id: number): Promise<DescribedPayload>;
   abstract getMachine(id: number): Promise<MachinePayload>;
   abstract getItemFlingEffect(id: number): Promise<FlingEffectPayload>;
 }
